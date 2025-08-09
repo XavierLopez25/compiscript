@@ -21,7 +21,7 @@ Este lenguaje se encuentra basado en Typescript, por lo que representa un subset
 3. **Generar Archivos de Lexer y Parser:** Dentro del contenedor, compila la gramática ANTLR a Python con:
 
    ```bash
-   antlr -Dlanguage=Python3 Compiscript.g4
+   antlr -Dlanguage=Python3 -visitor -no-listener Compiscript.g4
    ```
 4. **Ejecutar el Analizador**
    Usa el driver para analizar el archivo de prueba:
