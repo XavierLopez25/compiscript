@@ -64,6 +64,7 @@ RUN ./python-venv.sh
 COPY requirements.txt .
 # Not production-intended, never do this, this is just a simple example
 RUN pip install -r requirements.txt --break-system-packages 
+RUN apt-get update && apt-get install -y graphviz && rm -rf /var/lib/apt/lists/*
 
 # Set user
 ARG USER=appuser
@@ -75,6 +76,6 @@ RUN adduser \
     --no-create-home \
     --uid "${UID}" \
     "${USER}"
-USER ${UID}
+#USER ${UID}
 
 WORKDIR /program
