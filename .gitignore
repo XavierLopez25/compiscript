@@ -1,2 +1,7 @@
 configs
 program/__pycache__
+program/AST/__pycache__/
+program/semantic/__pycache__/
+ast.dot
+ast.png
+* copy*
