@@ -5,3 +5,4 @@ program/semantic/__pycache__/
 ast.dot
 ast.png
 * copy*
+/venv
