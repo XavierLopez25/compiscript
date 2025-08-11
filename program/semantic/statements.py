@@ -132,53 +132,78 @@ class Statements:
 
     def visitWhileStatement(self, ctx: CompiscriptParser.WhileStatementContext):
         cond = self.visit(ctx.expression())
-        self._ensure_boolean(cond, "while condition")
+        self._ensure_boolean(cond, "condición de while")
+        self.loop_depth += 1
         body = self.visit(ctx.block())
+        self.loop_depth -= 1
         return WhileStatement(cond, body)
 
     def visitDoWhileStatement(self, ctx: CompiscriptParser.DoWhileStatementContext):
+        self.loop_depth += 1
         body = self.visit(ctx.block())
+        self.loop_depth -= 1
         cond = self.visit(ctx.expression())
-        self._ensure_boolean(cond, "do-while condition")
-        return DoWhileStatement(body, cond)
+        self._ensure_boolean(cond, "condición de do-while")
+        return DoWhileStatement(body, cond) 
 
     def visitForStatement(self, ctx: CompiscriptParser.ForStatementContext):
-        # ( variableDeclaration | assignment | ';' ) expression? ';' expression? ')' block
-        init = None
-        if ctx.variableDeclaration():
-            init = self.visit(ctx.variableDeclaration())
-        elif ctx.assignment():
-            init = self.visit(ctx.assignment())
-        # condición
-        cond = self.visit(ctx.expression(0)) if len(ctx.expression()) >= 1 else None
-        if cond: self._ensure_boolean(cond, "for condition")
-        # update
-        upd  = self.visit(ctx.expression(1)) if len(ctx.expression()) >= 2 else None
-        body = self.visit(ctx.block())
-        return ForStatement(init, cond, upd, body)
+        old_scope = self.state.current_scope
+        self.state.current_scope = Scope(parent=old_scope)
+        try:
+            init = None
+            if ctx.variableDeclaration():
+                init = self.visit(ctx.variableDeclaration())
+            elif ctx.assignment():
+                init = self.visit(ctx.assignment())
+
+            cond = self.visit(ctx.expression(0)) if len(ctx.expression()) >= 1 else None
+            if cond:
+                self._ensure_boolean(cond, "condición de for")
+
+            upd = self.visit(ctx.expression(1)) if len(ctx.expression()) >= 2 else None
+
+            self.loop_depth += 1
+            body = self.visit(ctx.block())
+            self.loop_depth -= 1
+
+            return ForStatement(init, cond, upd, body)
+        finally:
+            self.state.current_scope = old_scope
+
 
     def visitForeachStatement(self, ctx: CompiscriptParser.ForeachStatementContext):
         var_name = ctx.Identifier().getText()
         iterable = self.visit(ctx.expression())
 
-        old = self.state.current_scope
-        self.state.current_scope = Scope(parent=old)
+        old_scope = self.state.current_scope
+        self.state.current_scope = Scope(parent=old_scope)
 
         elem_tn = None
         it_tn = self._expr_typenode(iterable)
         if it_tn and it_tn.dimensions > 0:
             elem_tn = self._array_element_typenode(it_tn)
-        # if it cannot be inferred, we leave it without type (accept everything for now)
+
         self.state.current_scope.define(Symbol(var_name, elem_tn, is_const=False, kind="var"))
 
+        self.loop_depth += 1
         body = self.visit(ctx.block())
-        self.state.current_scope = old
+        self.loop_depth -= 1
+
+        self.state.current_scope = old_scope
 
         return ForEachStatement(var_name, iterable, body)
 
 
-    def visitBreakStatement(self, ctx):    return BreakStatement()
-    def visitContinueStatement(self, ctx): return ContinueStatement()
+
+    def visitBreakStatement(self, ctx):
+        if self.loop_depth <= 0:
+            raise SemanticError("break fuera de un bucle")
+        return BreakStatement()
+
+    def visitContinueStatement(self, ctx):
+        if self.loop_depth <= 0:
+            raise SemanticError("continue fuera de un bucle")
+        return ContinueStatement()
 
     def visitReturnStatement(self, ctx: CompiscriptParser.ReturnStatementContext):
         value = self.visit(ctx.expression()) if ctx.expression() else None
@@ -214,14 +239,35 @@ class Statements:
         return TryCatchStatement(try_block, exc_name, catch_block)
 
     def visitSwitchStatement(self, ctx: CompiscriptParser.SwitchStatementContext):
-        expr = self.visit(ctx.expression())
-        cases = []
-        for c in ctx.switchCase():
-            val = self.visit(c.expression())
-            stmts = [ self.visit(s) for s in c.statement() ]
-            cases.append(SwitchCase(val, stmts))
-        default_stmts = [ self.visit(s) for s in ctx.defaultCase().statement() ] if ctx.defaultCase() else None
-        return SwitchStatement(expr, cases, default_stmts)
+        old_scope = self.state.current_scope
+        self.state.current_scope = Scope(parent=old_scope)
+        try:
+            switch_expr = self.visit(ctx.expression())
+
+            cases = []
+            for c in ctx.switchCase():
+                case_parent = self.state.current_scope
+                self.state.current_scope = Scope(parent=case_parent)
+                try:
+                    val = self.visit(c.expression())
+                    stmts = [self.visit(s) for s in c.statement()]
+                    cases.append(SwitchCase(val, stmts))
+                finally:
+                    self.state.current_scope = case_parent
+
+            default_stmts = None
+            if ctx.defaultCase():
+                def_parent = self.state.current_scope
+                self.state.current_scope = Scope(parent=def_parent)
+                try:
+                    default_stmts = [self.visit(s) for s in ctx.defaultCase().statement()]
+                finally:
+                    self.state.current_scope = def_parent
+
+            return SwitchStatement(switch_expr, cases, default_stmts)
+        finally:
+            self.state.current_scope = old_scope
+
 
     # ---- Functions & classes ----
 
