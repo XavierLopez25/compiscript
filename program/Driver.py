@@ -9,7 +9,7 @@ from AST.symbol_table import SemanticError
 from AST.ast_to_dot import write_dot
 
 def main(argv):
-    input_stream = FileStream(argv[1])
+    input_stream = FileStream(argv[1], encoding='utf-8')
     lexer = CompiscriptLexer(input_stream)
     stream = CommonTokenStream(lexer)
     parser = CompiscriptParser(stream)
