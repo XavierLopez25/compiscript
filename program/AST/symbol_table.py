@@ -1,9 +1,13 @@
 # program/symbol_table.py
+from dataclasses import dataclass, field
+from typing import Optional, Dict, List
+from AST.ast_nodes import TypeNode
 
 class SemanticError(Exception):
     """Exception for semantic errors."""
     pass
 
+@dataclass
 class Symbol:
     def __init__(self, name: str, type_node, is_const: bool=False, kind: str="var"):
         self.name       = name
@@ -17,16 +21,20 @@ class Symbol:
 class Scope:
     def __init__(self, parent=None):
         self.parent  = parent
-        self.symbols = {}  # name -> Symbol
+        self._table: Dict[str, Symbol] = {}
 
     def define(self, sym: Symbol):
-        if sym.name in self.symbols:
-            raise SemanticError(f"Redeclaration of '{sym.name}' in the same scope")
-        self.symbols[sym.name] = sym
+        if sym.name in self._table:
+            raise SemanticError(f"Identificador '{sym.name}' ya existe en este ámbito")
+        self._table[sym.name] = sym
+
+    def lookup_local(self, name: str) -> Optional[Symbol]:
+        return self._table.get(name)
 
     def lookup(self, name: str) -> Symbol:
-        if name in self.symbols:
-            return self.symbols[name]
-        if self.parent:
-            return self.parent.lookup(name)
-        raise SemanticError(f"Use of undeclared identifier: '{name}'")
+        scope = self
+        while scope is not None:
+            if name in scope._table:
+                return scope._table[name]
+            scope = scope.parent
+        raise SemanticError(f"Identificador '{name}' no declarado")
