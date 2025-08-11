@@ -104,5 +104,28 @@ function factorial(n: integer): integer {
   return n * factorial(n - 1);
 }
 
+//Tests de scope
+let x: integer = 1;
+{
+  let x: integer = 2; // permitido (sub-ámbito)
+  print(x);
+}
+print(x);
+let n: integer = 1;
+switch (n) {
+  case 1:
+    let k: integer = 5;
+    print(k);
+  default:
+    print(0);
+}
+
+//Error scope redeclarado
+let y: integer = 1;
+//let y: integer = 2;
+//Error uso sin declarar
+//print(z);
+
+
 // Program end
 print("Program finished.");
