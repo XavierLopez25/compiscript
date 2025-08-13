@@ -126,6 +126,62 @@ let y: integer = 1;
 //Error uso sin declarar
 //print(z);
 
+//DEBERIA FALLAR--------------- Aridad incorrecta
+function add(a: integer, b: integer): integer {
+  return a + b;
+}
+//let r1: integer = add(1); 
+//let r2: integer = add(1, 2, 3);
+//--------------------------------
+//DEBERIA FALLAR--------------- Tipo de argumento incorrecto
+function mul(a: integer, b: integer): integer {
+  return a * b;
+}
+let w: string = "hi";
+//let r3: integer = mul(2, w);  
+//------------------------
+//DEBERIA FALLAR--------------- Tipo de retorno incorrecto
+//function greet(): string {
+//  return 42;
+//}
+//function nope(): void {
+//  return 1;
+//}
+//----------------
+
+//---- RECURSION, pasa
+function fact(n: integer): integer {
+  if (n <= 1) { return 1; }
+  return n * fact(n - 1);
+}
+let f5: integer = fact(5);
+print("fact(5) = " + f5);
+
+
+// FUNCION ANIDADA
+let outer: integer = 10;
+
+
+
+//let resultAdder: integer = makeAdder(3);
+//print("makeAdder(3) = " + resultAdder);
+
+//--------- ERROR duplicado de funcion en el mismo scope
+//function ping(): void { }
+//function ping(): void { }
+//-------------------
+
+//------ DUPLICADO EN SCOPE ANIDADO, debe pasar
+function foo(): integer { return 1; }
+{
+  function foo(): integer { return 2; }    
+  let v: integer = foo();                
+  print("inner foo = " + v);
+}
+let w2: integer = foo();     
+print("outer foo = " + w2);
+//------------
+
 
 // Program end
 print("Program finished.");
