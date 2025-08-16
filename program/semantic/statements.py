@@ -124,15 +124,19 @@ class Statements:
         raise SemanticError("Invalid assignment")
 
     def visitIfStatement(self, ctx: CompiscriptParser.IfStatementContext):
-        cond = self.visit(ctx.expression())
-        self._ensure_boolean(cond, "if condition")
+        cond_ctx = ctx.expression()
+        cond = self.visit(cond_ctx)
+        if cond.type != Type.BOOLEAN:
+            self._raise_ctx(cond_ctx, "if condition must be boolean!")
         then_block = self.visit(ctx.block(0))
         else_block = self.visit(ctx.block(1)) if ctx.block(1) else None
         return IfStatement(cond, then_block, else_block)
 
     def visitWhileStatement(self, ctx: CompiscriptParser.WhileStatementContext):
-        cond = self.visit(ctx.expression())
-        self._ensure_boolean(cond, "condición de while")
+        cond_ctx = ctx.expression()
+        cond = self.visit(cond_ctx)
+        if cond.type != Type.BOOLEAN:
+            self._raise_ctx(cond_ctx, "while condition must be boolean!")
         self.loop_depth += 1
         body = self.visit(ctx.block())
         self.loop_depth -= 1
@@ -142,8 +146,10 @@ class Statements:
         self.loop_depth += 1
         body = self.visit(ctx.block())
         self.loop_depth -= 1
-        cond = self.visit(ctx.expression())
-        self._ensure_boolean(cond, "condición de do-while")
+        cond_ctx = ctx.expression()
+        cond = self.visit(cond_ctx)
+        if cond.type != Type.BOOLEAN:
+            self._raise_ctx(cond_ctx, "do-while condition must be boolean!")
         return DoWhileStatement(body, cond) 
 
     def visitForStatement(self, ctx: CompiscriptParser.ForStatementContext):
@@ -156,10 +162,12 @@ class Statements:
             elif ctx.assignment():
                 init = self.visit(ctx.assignment())
 
-            cond = self.visit(ctx.expression(0)) if len(ctx.expression()) >= 1 else None
-            if cond:
-                self._ensure_boolean(cond, "condición de for")
-
+            cond = None
+            cond_ctx = ctx.expression(0) if len(ctx.expression()) >= 1 else None
+            if cond_ctx:
+                cond = self.visit(cond_ctx)
+                if cond.type != Type.BOOLEAN:
+                    self._raise_ctx(cond_ctx, "for condition must be boolean!")
             upd = self.visit(ctx.expression(1)) if len(ctx.expression()) >= 2 else None
 
             self.loop_depth += 1
@@ -193,37 +201,34 @@ class Statements:
 
         return ForEachStatement(var_name, iterable, body)
 
-
-
     def visitBreakStatement(self, ctx):
-        if self.loop_depth <= 0:
-            raise SemanticError("break fuera de un bucle")
+        if self.loop_depth <= 0 and self.switch_depth <= 0:
+            self._raise_ctx(ctx, "break out of loop")
         return BreakStatement()
 
     def visitContinueStatement(self, ctx):
         if self.loop_depth <= 0:
-            raise SemanticError("continue fuera de un bucle")
+            self._raise_ctx(ctx, "continue out of loop")
         return ContinueStatement()
 
     def visitReturnStatement(self, ctx: CompiscriptParser.ReturnStatementContext):
         value = self.visit(ctx.expression()) if ctx.expression() else None
         # out of function:
         if not self.func_return_stack:
-            raise SemanticError("return outside of function")
-
+            self._raise_ctx(ctx, "return outside of function")
         expected = self.func_return_stack[-1]  # TypeNode
         if expected.base != "void":
             if value is None:
-                raise SemanticError("Return without value in non-void function")
-            if not self._types_compatible_assign(expected, value):  # <— pasa el nodo
-                raise SemanticError("Incompatible return type")
+                self._raise_ctx(ctx, "return without value in non-void function")
+
+            if not self._types_compatible_assign(expected, value):  
+                err_ctx = ctx.expression() if ctx.expression() else ctx
+                self._raise_ctx(err_ctx, "incompatible return type")
         else:
             if value is not None:
-                raise SemanticError("Return with value in void function")
+                self._raise_ctx(ctx.expression(), "return with value in void function")
 
         return ReturnStatement(value)
-
-
 
         # -------------- Try/Catch & Switch ------------------
 
@@ -241,9 +246,12 @@ class Statements:
     def visitSwitchStatement(self, ctx: CompiscriptParser.SwitchStatementContext):
         old_scope = self.state.current_scope
         self.state.current_scope = Scope(parent=old_scope)
+        self.switch_depth += 1
         try:
-            switch_expr = self.visit(ctx.expression())
-
+            expr_ctx = ctx.expression()
+            switch_expr = self.visit(expr_ctx)
+            if switch_expr.type != Type.BOOLEAN:
+                self._raise_ctx(expr_ctx, "switch condition must be boolean!")
             cases = []
             for c in ctx.switchCase():
                 case_parent = self.state.current_scope
@@ -266,8 +274,8 @@ class Statements:
 
             return SwitchStatement(switch_expr, cases, default_stmts)
         finally:
+            self.switch_depth -= 1
             self.state.current_scope = old_scope
-
 
     # ---- Functions & classes ----
 
