@@ -185,3 +185,6 @@ class Helpers:
             if b != first:
                 raise SemanticError("Array with incompatible element bases")
         return TypeNode(base=first, dimensions=dims)
+
+    def _raise_ctx(self, ctx, msg: str):
+        raise SemanticError(msg, line=ctx.start.line, column=ctx.start.column)
