@@ -5,6 +5,12 @@ from AST.ast_nodes import TypeNode
 
 class SemanticError(Exception):
     """Exception for semantic errors."""
+    def __init__(self, message, line=None, column=None):
+        if line is not None and column is not None:
+            message = f"line {line}:{column} {message}"
+        super().__init__(message)
+        self.line = line
+        self.column = column
     pass
 
 @dataclass
