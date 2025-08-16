@@ -9,6 +9,7 @@ class SemanticState:
     current_scope: Optional[Scope] = None
     func_return_stack: List[Optional[TypeNode]] = field(default_factory=list)
     loop_depth: int = 0
+    switch_depth: int = 0
     classes: Dict[str, dict] = field(default_factory=dict)
     current_class: Optional[str] = None
 
