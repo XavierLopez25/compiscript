@@ -29,6 +29,11 @@ class SemanticVisitor(Types, Statements, Expressions, Classes, Helpers, Compiscr
     def loop_depth(self, v): self.state.loop_depth = v
 
     @property
+    def switch_depth(self): return self.state.switch_depth
+    @switch_depth.setter
+    def switch_depth(self, v): self.state.switch_depth = v
+
+    @property
     def classes(self): return self.state.classes
 
     @property
