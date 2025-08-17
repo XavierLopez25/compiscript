@@ -42,7 +42,8 @@ class Expressions:
                 # If not a class, we cannot validate here
                 node = AssignmentStatement(target, value)
                 node.type = getattr(value, "type", None)
-                return node
+                self._raise_ctx(ctx, "property assignment on non-class value")
+                
             mem = self._lookup_member(obj_tn.base, target.property)
             if mem["kind"] != "field":
                 raise SemanticError(f"Cannot assign to member '{target.property}' (not a field)")
@@ -68,6 +69,9 @@ class Expressions:
             field_tn = mem["type"]
             if not self._types_compatible_assign(field_tn, value):
                 raise SemanticError(f"Cannot assign to field '{prop}'")
+
+        else: 
+            self._raise_ctx(ctx, "property assignment on non-class value")
 
         node = AssignmentStatement(target, value)
         node.type = getattr(value, "type", None)
@@ -301,6 +305,11 @@ class Expressions:
                             prim = self._get_primitive_enum_from_base(ret_tn.base)
                             if prim is not None:
                                 call.type = prim
+                        node = call
+                        continue
+
+                    if getattr(sym, "kind", None) == "class":
+                        self._raise_ctx(sop, f"Constructor of class '{sym.name}' must be called with 'new'")
 
                 if isinstance(node, PropertyAccess) and hasattr(node, "method_sig"):
                     sig = node.method_sig
@@ -316,17 +325,21 @@ class Expressions:
                         if prim is not None:
                             call.type = prim
 
-                node = call
+                    node = call
+                    continue
+
+                pretty = self._callee_pretty_name(node)
+                self._raise_ctx(sop, f" '{pretty}' is not callable")
 
             elif first_tok == '[':
                 idx = self.visit(sop.expression())
                 if idx.type != Type.INTEGER:
-                    raise SemanticError("Array index must be integer")
+                    self._raise_ctx(sop.expression(), "array index must be integer")
 
                 # Verify that current node is array
                 arr_tn = self._expr_typenode(node)
                 if arr_tn is None or arr_tn.dimensions == 0:
-                    raise SemanticError("Indexed access on non-array expression")
+                    self._raise_ctx(sop, "indexed access on non-array expression")
 
                 elem_tn = self._array_element_typenode(arr_tn)
                 idx_node = IndexExpression(node, idx)
@@ -343,6 +356,10 @@ class Expressions:
 
                 # Type the access if the object is a class
                 obj_tn = self._expr_typenode(node)
+
+                if not self._is_class_typenode(obj_tn):
+                    self._raise_ctx(sop, "member access on non-class value")
+
                 if self._is_class_typenode(obj_tn):
                     mem = self._lookup_member(obj_tn.base, prop)
                     if mem["kind"] == "field":
