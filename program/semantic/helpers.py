@@ -188,3 +188,10 @@ class Helpers:
 
     def _raise_ctx(self, ctx, msg: str):
         raise SemanticError(msg, line=ctx.start.line, column=ctx.start.column)
+
+    def _callee_pretty_name(self, node):
+        if isinstance(node, Variable):
+            return node.name
+        if isinstance(node, PropertyAccess):
+            return node.property
+        return node.__class__.__name_
