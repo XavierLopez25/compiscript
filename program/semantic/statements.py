@@ -116,6 +116,9 @@ class Statements:
                 field_tn = mem["type"]
                 if not self._types_compatible_assign(field_tn, value):
                     raise SemanticError(f"Assignment incompatible with field '{prop}'")
+            else: 
+                self._raise_ctx(ctx, "property assignment on non-class value")
+
             # if it's not a class, we let it pass (no type info)
             node = AssignmentStatement(target=target, value=value)
             node.type = getattr(value, "type", None)
@@ -203,7 +206,7 @@ class Statements:
 
     def visitBreakStatement(self, ctx):
         if self.loop_depth <= 0 and self.switch_depth <= 0:
-            self._raise_ctx(ctx, "break out of loop")
+            self._raise_ctx(ctx, "break out of loop or switch")
         return BreakStatement()
 
     def visitContinueStatement(self, ctx):
