@@ -26,8 +26,8 @@ tests/
 ### 1. Pruebas del Sistema de Tipos
 
 #### ✅ Casos Exitosos
-- **Operaciones aritméticas**: Aritmética de enteros y flotantes (`+`, `-`, `*`, `/`)
-- **Promoción de tipos**: Operaciones mixtas entre enteros/flotantes con promoción automática
+- **Operaciones aritméticas**: Aritmética de enteros (`+`, `-`, `*`, `/`)
+- **Promoción de tipos**: Operaciones mixtas entre enteros con promoción automática
 - **Operaciones lógicas**: Lógica booleana (`&&`, `||`, `!`)
 - **Operaciones de comparación**: Comparaciones compatibles por tipo (`==`, `!=`, `<`, `<=`, `>`, `>=`)
 - **Compatibilidad de asignación**: Asignaciones de tipo correctas
