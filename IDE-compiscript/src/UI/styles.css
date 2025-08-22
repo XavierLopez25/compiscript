@@ -1,4 +1,3 @@
-/* Import Montserrat font */
 @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Google+Sans+Code:wght@300;400;500;600;700&display=swap');
 
@@ -10,7 +9,6 @@
   font-display: swap;
 }
 
-/* Reset y estilos base */
 * {
   margin: 0;
   padding: 0;
@@ -179,6 +177,7 @@ html, body {
   min-width: 60px;
   border-right: 1px solid #555555;
   font-family: 'Google Sans Code', monospace;
+  z-index: 3;
 }
 
 .line-number {
@@ -189,32 +188,83 @@ html, body {
   font-family: 'Yosert', sans-serif;
 }
 
-.code-editor {
-  flex: 1;
-  border: none;
-  outline: none;
-  padding: 20px;
-  font-size: 14px;
-  line-height: 22px;
-  font-family: 'Google Sans Code', monospace;
-  resize: none;
-  white-space: pre;
-  overflow-wrap: normal;
-  overflow-x: auto;
-  tab-size: 2;
-  background: transparent;
-}
-
-.code-editor::before {
-  content: '';
+.editor-wrapper .code-highlights,
+.editor-wrapper .code-editor {
+  /* Posicionamiento */
   position: absolute;
   top: 0;
-  left: 0;
+  left: 60px;
   right: 0;
   bottom: 0;
-  background-color: rgba(115, 147, 179, 0.8);
+  display: block;
+  
+  /* Espaciado idéntico */
+  margin: 0;
+  padding: 20px;
+  border: none;
+  outline: none;
+  
+  /* Tipografía idéntica */
+  font-family: 'Google Sans Code', monospace;
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 400;
+  font-style: normal;
+  font-variant: normal;
+  
+  /* Configuración de espaciado de caracteres */
+  letter-spacing: 0;
+  word-spacing: 0;
+  text-indent: 0;
+  
+  /* Configuración de whitespace */
+  white-space: pre;
+  word-wrap: normal;
+  word-break: normal;
+  overflow-wrap: normal;
+  
+  /* Configuración de tabs */
+  tab-size: 2;
+  -moz-tab-size: 2;
+  -webkit-tab-size: 2;
+  
+  /* Desactivar ligaduras */
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
+}
+
+.editor-wrapper .code-highlights {
+  background: transparent;
+  color: inherit;
   pointer-events: none;
+  overflow: hidden;
   z-index: 1;
+}
+
+.editor-wrapper .code-editor {
+  background: transparent;
+  color: transparent;
+  caret-color: #ffffff;
+  resize: none;
+  overflow: auto;
+  z-index: 2;
+}
+
+.editor-wrapper .code-highlights code {
+  display: block;
+  font: inherit;
+  margin: 0;
+  padding: 0;
+  background: inherit;
+  color: inherit;
+  white-space: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+  word-spacing: inherit;
+}
+
+.code-editor::selection {
+  background: rgba(255,255,255,0.15);
 }
 
 .code-editor::-webkit-scrollbar,
@@ -242,3 +292,10 @@ html, body {
 .line-numbers::-webkit-scrollbar {
   width: 0px;
 }
+
+.tok-kw { color: #c792ea; font-weight: 400; }      
+.tok-number { color: #f78c6c; }
+.tok-string { color: #ecc48d; }
+.tok-comment { color: #697098; font-style: normal; }
+.tok-op { color: #89ddff; }
+.tok-brace { color: #82aaff; font-weight: 400; }
