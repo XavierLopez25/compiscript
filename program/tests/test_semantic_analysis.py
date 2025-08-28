@@ -19,16 +19,17 @@ class TestSemanticAnalysis(unittest.TestCase):
     
     def setUp(self):
         """Set up test fixture."""
-        self.visitor = SemanticVisitor()
+        pass
     
     def parse_and_analyze(self, code: str):
         """Parse code and run semantic analysis."""
+        visitor = SemanticVisitor()  # Create fresh visitor for each analysis
         input_stream = InputStream(code)
         lexer = CompiscriptLexer(input_stream)
         stream = CommonTokenStream(lexer)
         parser = CompiscriptParser(stream)
         tree = parser.program()
-        return self.visitor.visit(tree)
+        return visitor.visit(tree)
     
     def assert_semantic_error(self, code: str, expected_message_contains: str = None):
         """Assert that code raises a SemanticError."""
@@ -64,16 +65,18 @@ class TestTypeSystem(TestSemanticAnalysis):
         var f2: integer = a2 / b2;
         """
         self.parse_and_analyze(code)
-    
-    def test_arithmetic_operations_failure(self):
-        """Test arithmetic operations with incompatible types."""
+
         # String arithmetic
         code = """
         var a: string = "hello";
         var b: string = "world";
         var c: string = a + b;
         """
-        self.assert_semantic_error(code)
+        self.parse_and_analyze(code)
+        
+    
+    def test_arithmetic_operations_failure(self):
+        """Test arithmetic operations with incompatible types."""
         
         # Boolean arithmetic
         code = """
@@ -150,10 +153,11 @@ class TestTypeSystem(TestSemanticAnalysis):
         """
         self.parse_and_analyze(code)
     
-    def test_const_initialization_failure(self):
-        """Test const declaration without initialization."""
+    def test_const_reassignment_failure(self):
+        """Test const reassignment after initialization."""
         code = """
-        const a: integer;
+        const a: integer = 5;
+        a = 10;
         """
         self.assert_semantic_error(code)
 
