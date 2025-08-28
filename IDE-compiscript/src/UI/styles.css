@@ -178,6 +178,12 @@ html, body {
   border-right: 1px solid #555555;
   font-family: 'Google Sans Code', monospace;
   z-index: 3;
+  overflow: hidden;    
+  position: relative;
+}
+
+.line-numbers-inner {
+  will-change: transform;
 }
 
 .line-number {

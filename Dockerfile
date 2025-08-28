@@ -58,8 +58,8 @@ RUN chmod +x /usr/bin/grun
 
 # Python virtual env
 COPY python-venv.sh .
-RUN chmod +x ./python-venv.sh
-RUN ./python-venv.sh
+RUN sed -i 's/\r$//' python-venv.sh && chmod +x python-venv.sh
+RUN /bin/bash ./python-venv.sh
 
 COPY requirements.txt .
 # Not production-intended, never do this, this is just a simple example
@@ -77,5 +77,14 @@ RUN adduser \
     --uid "${UID}" \
     "${USER}"
 #USER ${UID}
+
+# Java para ANTLR
+RUN apt-get update && apt-get install -y openjdk-17-jre-headless && rm -rf /var/lib/apt/lists/*
+
+# Copia y normaliza wrappers
+COPY ./commands/antlr /usr/local/bin/antlr
+RUN sed -i 's/\r$//' /usr/local/bin/antlr && chmod +x /usr/local/bin/antlr
+COPY ./commands/grun /usr/local/bin/grun
+RUN sed -i 's/\r$//' /usr/local/bin/grun && chmod +x /usr/local/bin/grun
 
 WORKDIR /program
