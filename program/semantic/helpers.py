@@ -148,7 +148,7 @@ class Helpers:
         if getattr(node, "type", None) not in (Type.INTEGER, Type.FLOAT):
             raise SemanticError(f"Operands of '{op}' must be integer|float, got {getattr(node, 'type', None)}")
 
-    def _unify_array_element_types(self, elem_tns: List[TypeNode]) -> TypeNode:
+    def _unify_array_element_types(self, ctx, elem_tns: List[TypeNode]) -> TypeNode:
         """
         Unifies the types of the elements of an array literal (can be primitive or arrays),
         allowing numeric promotion (integer→float) and checking that the dimensions match.
@@ -183,7 +183,8 @@ class Helpers:
         first = bases[0]
         for b in bases[1:]:
             if b != first:
-                raise SemanticError("Array with incompatible element bases")
+                msg = f"Array with incompatible element bases: '{first}' and '{b}'"
+                raise SemanticError(msg, line=ctx.start.line, column=ctx.start.column)
         return TypeNode(base=first, dimensions=dims)
 
     def _raise_ctx(self, ctx, msg: str):

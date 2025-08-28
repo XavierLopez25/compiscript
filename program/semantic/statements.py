@@ -253,8 +253,9 @@ class Statements:
         try:
             expr_ctx = ctx.expression()
             switch_expr = self.visit(expr_ctx)
-            if switch_expr.type != Type.BOOLEAN:
-                self._raise_ctx(expr_ctx, "switch condition must be boolean!")
+            if switch_expr.type not in (Type.INTEGER, Type.STRING, Type.BOOLEAN):
+                self._raise_ctx(expr_ctx, f"switch condition must be integer, boolean or string, got {switch_expr.type}")
+
             cases = []
             for c in ctx.switchCase():
                 case_parent = self.state.current_scope

@@ -271,7 +271,7 @@ class Expressions:
                 elem_tns.append(tn)
 
         # Unify ELEMENT type; then the outer array adds one dimension
-        elem_tn = self._unify_array_element_types(elem_tns) if elem_tns else TypeNode(base="any", dimensions=0)
+        elem_tn = self._unify_array_element_types(ctx, elem_tns) if elem_tns else TypeNode(base="any", dimensions=0)
         arr_tn = TypeNode(base=elem_tn.base, dimensions=elem_tn.dimensions + 1)
 
         node = ArrayLiteral(elems)

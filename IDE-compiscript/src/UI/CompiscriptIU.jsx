@@ -202,10 +202,32 @@ function CompiscriptIU() {
     highlightRef.current.scrollLeft = editorRef.current.scrollLeft
   }
 
-    const handleRunCode = () => {
-      console.log('Ejecutando código:', code)
-      // Aquí iría la lógica para ejecutar el código
+    const [diagnostics, setDiagnostics] = useState([]);
+    const [isRunning, setIsRunning] = useState(false);
+
+    async function analyzeCode(code , { returnAsDot = false} = {}) {
+      const res = await fetch('http://localhost:8000/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, return_ast_dot: returnAsDot }),
+      });
+      return res.json();
     }
+
+    const handleRunCode = async () => {
+      try {
+        setIsRunning(true);
+        const result = await analyzeCode(code, { returnAsDot: false }); // true para devolver el AST en DOT
+        setDiagnostics(result.diagnostics || []);
+      } catch (e) {
+        setDiagnostics([{
+          kind: "client",
+          message: "No se pudo conectar con el analizador.",
+        }]);
+      } finally {
+        setIsRunning(false);
+      }
+    };
 
     const lines = code.split('\n')
     const lineNumbers = lines.map((_, index) => index + 1)
