@@ -2,12 +2,50 @@ import React, { useState, useRef, useMemo } from 'react'
 import { FaPlay } from "react-icons/fa6";
 import './styles.css'
 
+// ===== Constantes de layout (sincronizadas con tu CSS) =====
+const LINE_HEIGHT = 22;      // .editor-wrapper .code-* { line-height: 22px }
+const PADDING_Y = 20;        // padding-top en .code-highlights / .code-editor
+const PADDING_X = 20;        // padding-left en .code-highlights / .code-editor
+const GUTTER_W  = 60;        // ancho de .line-numbers
+const TAB_SIZE  = 2;         // tab-size en CSS
+const COLUMN_IS_ONE_BASED = false; // tu backend parece 0-based (ej: columna 3 apunta a ':' en "let:")
+
+// Expande tabs a espacios para medir visualmente como en el editor
+function expandTabsToSpaces(s, tabSize) {
+  let out = '';
+  let col = 0;
+  for (const ch of s) {
+    if (ch === '\t') {
+      const spaces = tabSize - (col % tabSize || 0);
+      out += ' '.repeat(spaces);
+      col += spaces;
+    } else {
+      out += ch;
+      col += 1;
+    }
+  }
+  return out;
+}
+
 function CompiscriptIU() {
 
   const [code, setCode] = useState('')
+  const [diagnostics, setDiagnostics] = useState([]);
+  const [isRunning, setIsRunning] = useState(false);
+
   const editorRef = useRef(null)
   const highlightRef = useRef(null)
   const lineNumbersInnerRef = useRef(null);
+  const probeRef = useRef(null); // medidor oculto
+
+  // Medición precisa en píxeles usando un espejo DOM oculto
+  function measurePrefixPx(prefix) {
+    const el = probeRef.current;
+    if (!el) return 0;
+    const expanded = expandTabsToSpaces(prefix, TAB_SIZE);
+    el.textContent = expanded.length ? expanded : '';
+    return el.offsetWidth || 0;
+  }
 
   const INDENT = '\t' // Usar tabulación para la indentación
 
@@ -205,14 +243,10 @@ function CompiscriptIU() {
     highlightRef.current.scrollTop = top;
     highlightRef.current.scrollLeft = left;
 
-    // +2: mueve los números con transform (suavísimo y barato)
     if (lineNumbersInnerRef.current) {
       lineNumbersInnerRef.current.style.transform = `translateY(${-top}px)`;
     }
   };
-
-  const [diagnostics, setDiagnostics] = useState([]);
-  const [isRunning, setIsRunning] = useState(false);
 
   async function analyzeCode(code, { returnAsDot = false } = {}) {
     const res = await fetch('http://localhost:8000/analyze', {
@@ -226,7 +260,7 @@ function CompiscriptIU() {
   const handleRunCode = async () => {
     try {
       setIsRunning(true);
-      const result = await analyzeCode(code, { returnAsDot: false }); // true para devolver el AST en DOT
+      const result = await analyzeCode(code, { returnAsDot: false });
       setDiagnostics(result.diagnostics || []);
     } catch (e) {
       setDiagnostics([{
@@ -240,6 +274,31 @@ function CompiscriptIU() {
 
   const lines = code.split('\n')
   const lineNumbers = lines.map((_, index) => index + 1)
+
+  // Marcadores de error medidos en píxeles reales
+  const markers = useMemo(() => {
+    const ls = code.split('\n');
+
+    return (diagnostics || []).map((d, i) => {
+      const lineIdx = Math.max(0, (d.line ?? 1) - 1);
+      const rawLine = ls[lineIdx] ?? '';
+
+      const col0 = Math.max(0, (d.column ?? 0) - (COLUMN_IS_ONE_BASED ? 1 : 0));
+      const len = Math.max(1, d.length ?? 1);
+
+      const prefix   = rawLine.slice(0, col0);
+      const untilEnd = rawLine.slice(0, col0 + len);
+
+      const pxStart = measurePrefixPx(prefix);
+      const pxEnd   = measurePrefixPx(untilEnd);
+      const width   = Math.max(2, pxEnd - pxStart);
+
+      const top  = PADDING_Y + lineIdx * LINE_HEIGHT;
+      const left = PADDING_X + pxStart;
+
+      return { i, top, left, width, message: d.message || '' };
+    });
+  }, [diagnostics, code]);
 
   return (
     <div className="ide-container">
@@ -256,7 +315,7 @@ function CompiscriptIU() {
         <div className="editor-section">
           <header className="ide-header">
             <div className="ide-title">Fase de Compilación: Analizador Semántico</div>
-            <button className="run-button" onClick={handleRunCode}>
+            <button className="run-button" onClick={handleRunCode} disabled={isRunning}>
               <FaPlay />
             </button>
           </header>
@@ -265,14 +324,33 @@ function CompiscriptIU() {
             <div className="editor-wrapper">
               <div className="line-numbers">
                 <div className="line-numbers-inner" ref={lineNumbersInnerRef}>
-                  {lineNumbers.map(n => (
-                    <div key={n} className="line-number">{n}</div>
-                  ))}
+                  {lineNumbers.map((n) => {
+                    const error = diagnostics.find(d => d.line === n);
+                    return (
+                      <div
+                        key={n}
+                        className={`line-number ${error ? 'line-error' : ''}`}
+                        title={error ? error.message : ''}
+                      >
+                        {n}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
               <pre ref={highlightRef} className="code-highlights" aria-hidden="true">
-                <code dangerouslySetInnerHTML={{ __html: highlighted || '&nbsp;' }} />
+                <code
+                  dangerouslySetInnerHTML={{ __html: highlighted || '&nbsp;' }}
+                />
+                {markers.map(m => (
+                  <div
+                    key={m.i}
+                    className="error-marker"
+                    style={{ top: `${m.top}px`, left: `${m.left}px`, width: `${m.width}px` }}
+                    title={m.message}
+                  />
+                ))}
               </pre>
 
               <textarea
@@ -288,8 +366,10 @@ function CompiscriptIU() {
                 autoCorrect="off"
                 wrap="off"
               />
-            </div>
 
+              {/* Probe oculto para medición 1:1 con el render */}
+              <div ref={probeRef} className="measure-probe"></div>
+            </div>
           </main>
         </div>
       </div>

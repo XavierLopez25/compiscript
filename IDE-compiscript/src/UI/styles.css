@@ -194,6 +194,38 @@ html, body {
   font-family: 'Yosert', sans-serif;
 }
 
+.line-number.line-error {
+  background-color: rgba(255, 0, 0, 0.1);
+  color: #ff6b6b;
+  font-weight: bold;
+}
+
+.error-marker {
+  position: absolute;
+  height: 22px; /* line-height */
+  background-color: rgba(255, 0, 0, 0.2);
+  border-bottom: 2px solid #ff5555;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.measure-probe {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+  white-space: pre;             
+  font-family: 'Google Sans Code', monospace;
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 400;
+  left: -99999px;               
+  top: -99999px;
+  tab-size: 2;
+  -moz-tab-size: 2;
+  -webkit-tab-size: 2;
+}
+
+
 .editor-wrapper .code-highlights,
 .editor-wrapper .code-editor {
   /* Posicionamiento */
