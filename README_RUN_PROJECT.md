@@ -12,7 +12,9 @@ Este lenguaje se encuentra basado en Typescript, por lo que representa un subset
 1. **Construir y Ejecutar el Contenedor Docker:** Desde el directorio raíz, ejecuta el siguiente comando para construir la imagen y lanzar un contenedor interactivo:
 
    ```bash
-   docker build --rm . -t csp-image && docker run --rm -ti -v "$(pwd)/program":/program csp-image
+    docker build --rm . -t csp-image && \
+    docker run --rm -it -p 8000:8000 -v "$(pwd)/program":/program -w /program csp-image \
+    uvicorn server:app --host 0.0.0.0 --port 8000 --reload
    ```
 2. **Entender el Entorno**
 
