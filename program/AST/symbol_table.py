@@ -23,24 +23,43 @@ class Symbol:
         # Para funciones:
         self.params     = []          # [TypeNode, ...]
         self.return_type= None        # TypeNode
+    def to_dict(self):
+        def tn_str(tn):
+            if tn is None: return None
+            return f"{tn.base}[{tn.dimensions}]"
+        return {
+            "name": self.name,
+            "kind": getattr(self, "kind", "var"),
+            "const": getattr(self, "is_const", False),
+            "type": tn_str(self.type_node),
+            "params": [tn_str(p) for p in getattr(self, "params", [])] if hasattr(self, "params") else None,
+            "return": tn_str(getattr(self, "return_type", None)) if hasattr(self, "return_type") else None,
+        }
 
 class Scope:
     def __init__(self, parent=None):
-        self.parent  = parent
-        self._table: Dict[str, Symbol] = {}
+        self.parent = parent
+        self.symbols = {}   # name -> Symbol
+        self.children = []  # <- NEW
+        if parent:
+            parent.children.append(self)  # <- NEW
 
-    def define(self, sym: Symbol):
-        if sym.name in self._table:
-            raise SemanticError(f"Identificador '{sym.name}' ya existe en este ámbito")
-        self._table[sym.name] = sym
+    def define(self, sym):
+        if sym.name in self.symbols:
+            raise SemanticError(f"Redeclaración de '{sym.name}' en el mismo ámbito")
+        self.symbols[sym.name] = sym
 
-    def lookup_local(self, name: str) -> Optional[Symbol]:
-        return self._table.get(name)
+    def lookup(self, name):
+        cur = self
+        while cur:
+            if name in cur.symbols:
+                return cur.symbols[name]
+            cur = cur.parent
+        raise SemanticError(f"Identificador no declarado: '{name}'")
 
-    def lookup(self, name: str) -> Symbol:
-        scope = self
-        while scope is not None:
-            if name in scope._table:
-                return scope._table[name]
-            scope = scope.parent
-        raise SemanticError(f"Identificador '{name}' no declarado")
+    # Helpers para mostrar
+    def to_dict(self):
+        return {
+            "symbols": [s.to_dict() for s in self.symbols.values()],
+            "children": [c.to_dict() for c in self.children],
+        }
