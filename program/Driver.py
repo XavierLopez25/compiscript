@@ -4,7 +4,7 @@ from CompiscriptLexer import CompiscriptLexer
 from CompiscriptParser import CompiscriptParser
 from SemanticVisitor import SemanticVisitor
 from AST.symbol_table import SemanticError
-
+import json
 
 from AST.ast_to_dot import write_dot
 
@@ -14,13 +14,16 @@ def main(argv):
     stream = CommonTokenStream(lexer)
     parser = CompiscriptParser(stream)
     tree = parser.program()
-
     sem = SemanticVisitor()
+    
     try:
         ast = sem.visit(tree)
         print("Semantic analysis completed successfully.")
         write_dot(ast, "ast.dot")
         print("AST -> ast.dot (usa: dot -Tpng ast.dot -o ast.png)")
+        with open("scopes.json", "w") as f:
+            json.dump(sem.global_scope.to_dict(), f, indent=2)
+        print("Scopes -> scopes.json")
 
     except SemanticError as e:
         print(f"Semantic error: {e}")
