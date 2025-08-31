@@ -11,9 +11,31 @@ class Statements:
     def visitBlock(self, ctx: CompiscriptParser.BlockContext):
         old = self.state.current_scope
         self.state.current_scope = Scope(parent=old)
-        stmts = [ self.visit(s) for s in ctx.statement() ]
-        self.state.current_scope = old
-        return Block(statements=stmts)
+        stmts = []
+        terminated = False
+        try:
+            for sctx in ctx.statement():
+                if terminated:
+                    self._raise_ctx(sctx, "dead code: statement unreachable after return/break/continue")
+                s = self.visit(sctx)
+                stmts.append(s)
+
+                # Does this statement guarantee to terminate the flow of the block?
+                if isinstance(s, ReturnStatement):
+                    terminated = True
+                elif isinstance(s, BreakStatement) and (self.switch_depth > 0 or self.loop_depth > 0):
+                    terminated = True
+                elif isinstance(s, ContinueStatement) and self.loop_depth > 0:
+                    terminated = True
+                elif getattr(s, "terminates", False):
+                    terminated = True
+        finally:
+            self.state.current_scope = old
+
+        block = Block(statements=stmts)
+        block.terminates = terminated
+        return block
+
 
     # ---- Variable/Constant Declarations ----
     def visitVariableDeclaration(self, ctx: CompiscriptParser.VariableDeclarationContext):
@@ -133,7 +155,12 @@ class Statements:
             self._raise_ctx(cond_ctx, "if condition must be boolean!")
         then_block = self.visit(ctx.block(0))
         else_block = self.visit(ctx.block(1)) if ctx.block(1) else None
-        return IfStatement(cond, then_block, else_block)
+
+        node = IfStatement(cond, then_block, else_block)
+        # The if "ends" if both branches end
+        node.terminates = bool(else_block) and getattr(then_block, "terminates", False) and getattr(else_block, "terminates", False)
+        return node
+
 
     def visitWhileStatement(self, ctx: CompiscriptParser.WhileStatementContext):
         cond_ctx = ctx.expression()
@@ -233,18 +260,20 @@ class Statements:
 
         return ReturnStatement(value)
 
-        # -------------- Try/Catch & Switch ------------------
-
+    # -------------- Try/Catch & Switch ------------------
     def visitTryCatchStatement(self, ctx: CompiscriptParser.TryCatchStatementContext):
-        try_block   = self.visit(ctx.block(0))
-        exc_name    = ctx.Identifier().getText()
-        # Create scope for catch (exc)
+        try_block = self.visit(ctx.block(0))
+        exc_name  = ctx.Identifier().getText()
         old = self.state.current_scope
         self.state.current_scope = Scope(parent=old)
         self.state.current_scope.define(Symbol(exc_name, TypeNode(base="any"), is_const=True))
         catch_block = self.visit(ctx.block(1))
         self.state.current_scope = old
-        return TryCatchStatement(try_block, exc_name, catch_block)
+
+        node = TryCatchStatement(try_block, exc_name, catch_block)
+        node.terminates = getattr(try_block, "terminates", False) and getattr(catch_block, "terminates", False)
+        return node
+
 
     def visitSwitchStatement(self, ctx: CompiscriptParser.SwitchStatementContext):
         old_scope = self.state.current_scope
