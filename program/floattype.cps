@@ -1,0 +1,1 @@
+let i: integer = 2.0;
