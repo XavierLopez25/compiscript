@@ -234,22 +234,19 @@ class Expressions:
         return self.visit(ctx.expression())
 
     # literalExpr: Literal | arrayLiteral | 'null' | 'true' | 'false'
-    def visitLiteralExpr(self, ctx: CompiscriptParser.LiteralExprContext):
+    def visitLiteralExpr(self, ctx):
         text = ctx.getText()
-        if text == 'null':
-            return NullLiteral()
-        if text == 'true':
-            return Literal(True, Type.BOOLEAN)
-        if text == 'false':
-            return Literal(False, Type.BOOLEAN)
-        if ctx.arrayLiteral():
-            arr = self.visit(ctx.arrayLiteral())
-            return arr
-        # Literal → IntegerLiteral | StringLiteral
-        if text.startswith('"'):
+        if text == 'null': return NullLiteral()
+        if text == 'true': return Literal(True, Type.BOOLEAN)
+        if text == 'false': return Literal(False, Type.BOOLEAN)
+        if ctx.arrayLiteral(): return self.visit(ctx.arrayLiteral())
+
+        if text.startswith('"') and text.endswith('"'):
             return Literal(text[1:-1], Type.STRING)
-        else:
-            return Literal(int(text), Type.INTEGER)
+
+        if '.' in text:                # ← float estricto
+            return Literal(float(text), Type.FLOAT)
+        return Literal(int(text), Type.INTEGER)
 
     def visitArrayLiteral(self, ctx: CompiscriptParser.ArrayLiteralContext):
         elems = []
