@@ -9,8 +9,7 @@ CompilScript is a statically-typed programming language with object-oriented fea
 3. [Architecture](#architecture)
 4. [Installation and Setup](#installation-and-setup)
 5. [Usage](#usage)
-6. [Modules](#modules)
-7. [Testing](#testing)
+6. [Testing](#testing)
 
 ## Project Overview
 
@@ -66,6 +65,8 @@ compiscript/
 ├── Compiscript.g4        # ANTLR grammar specification
 └── program/              # Test programs and examples
 ```
+
+<img width="1300" height="836" alt="image" src="https://github.com/user-attachments/assets/900ccd55-7678-49e3-a392-0c514b7d4c75" />
 
 ### Architectural Patterns
 
