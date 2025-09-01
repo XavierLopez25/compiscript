@@ -98,6 +98,6 @@ def analyze(req: AnalyzeRequest):
                         ast_dot_str = f.read()
 
         except SemanticError as e:
-            diagnostics.append(Diagnostic(kind="semantic", message=str(e)))
+            diagnostics.append(Diagnostic(kind="semantic", message=str(e), line=e.line, column=e.column))
 
     return AnalyzeResponse(ok=ok, diagnostics=diagnostics, ast_dot=ast_dot_str)
