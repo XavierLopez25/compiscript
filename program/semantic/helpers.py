@@ -13,9 +13,13 @@ class Helpers:
             return lhs_node
         raise SemanticError("The LHS of an assignment is not assignable")
 
-    def _ensure_boolean(self, node: ASTNode, op_desc="operation"):
+    def _ensure_boolean(self, node: ASTNode, op_desc="operation", ctx=None):
         if node.type != Type.BOOLEAN:
-            raise SemanticError(f"The {op_desc} requires boolean, got {node.type}")
+            message = f"The {op_desc} requires boolean, got {node.type}"
+            if ctx:
+                self._raise_ctx(ctx, message)
+            else:
+                raise SemanticError(message)
 
     def _type_name_is_primitive(self, base: str) -> bool:
         return base in ("integer", "float", "string", "boolean", "void")
@@ -108,6 +112,10 @@ class Helpers:
 
     def _check_method_override(self, cls: str, name: str, params: List[TypeNode], ret: TypeNode):
         """If the method exists in the superclass, validate signature compatibility."""
+
+        if name == "constructor":
+            return
+
         cur = self._lookup_class(cls)
         s = cur.get("super")
         if not s:
@@ -144,9 +152,13 @@ class Helpers:
         # alias for the name used in visitIdentifierExpr
         return self._type_name_is_primitive(base)
     
-    def _ensure_numeric(self, node: ASTNode, op: str):
+    def _ensure_numeric(self, node: ASTNode, op: str, ctx=None):
         if getattr(node, "type", None) not in (Type.INTEGER, Type.FLOAT):
-            raise SemanticError(f"Operands of '{op}' must be integer|float, got {getattr(node, 'type', None)}")
+            message = f"Operands of '{op}' must be integer|float, got {getattr(node, 'type', None)}"
+            if ctx:
+                self._raise_ctx(ctx, message)
+            else:
+                raise SemanticError(message)
 
     def _unify_array_element_types(self, ctx, elem_tns: List[TypeNode]) -> TypeNode:
         """

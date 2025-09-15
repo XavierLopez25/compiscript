@@ -16,9 +16,9 @@ class Expressions:
         if isinstance(target, Variable):
             sym = self.state.current_scope.lookup(target.name)
             if sym.is_const:
-                raise SemanticError(f"Cannot assign to constant '{target.name}'")
+                self._raise_ctx(ctx, f"Cannot assign to constant '{target.name}'")
             if not self._types_compatible_assign(sym.type_node, value):
-                raise SemanticError(f"Cannot assign to '{target.name}'")
+                self._raise_ctx(ctx, f"Cannot assign to '{target.name}'")
             node = AssignmentStatement(target, value)
             node.type = value.type
             return node
@@ -27,10 +27,10 @@ class Expressions:
         if isinstance(target, IndexExpression):
             base_tn = self._expr_typenode(target.array)
             if base_tn is None or base_tn.dimensions == 0:
-                raise SemanticError("Left-hand side index expression is not an array")
+                self._raise_ctx(ctx, "Left-hand side index expression is not an array")
             elem_tn = self._array_element_typenode(base_tn)
             if not self._types_compatible_assign(elem_tn, value):
-                raise SemanticError("Cannot assign to array element")
+                self._raise_ctx(ctx, "Cannot assign to array element")
             node = AssignmentStatement(target, value)
             node.type = getattr(value, "type", None)
             return node
@@ -46,10 +46,10 @@ class Expressions:
                 
             mem = self._lookup_member(obj_tn.base, target.property)
             if mem["kind"] != "field":
-                raise SemanticError(f"Cannot assign to member '{target.property}' (not a field)")
+                self._raise_ctx(ctx, f"Cannot assign to member '{target.property}' (not a field)")
             field_tn = mem["type"]
             if not self._types_compatible_assign(field_tn, value):
-                raise SemanticError(f"Cannot assign to field '{target.property}'")
+                self._raise_ctx(ctx, f"Cannot assign to field '{target.property}'")
             node = AssignmentStatement(target, value)
             node.type = getattr(value, "type", None)
             return node
@@ -65,10 +65,10 @@ class Expressions:
         if self._is_class_typenode(obj_tn):
             mem = self._lookup_member(obj_tn.base, prop)
             if mem["kind"] != "field":
-                raise SemanticError(f"Cannot assign to member '{prop}' (not a field)")
+                self._raise_ctx(ctx, f"Cannot assign to member '{prop}' (not a field)")
             field_tn = mem["type"]
             if not self._types_compatible_assign(field_tn, value):
-                raise SemanticError(f"Cannot assign to field '{prop}'")
+                self._raise_ctx(ctx, f"Cannot assign to field '{prop}'")
 
         else: 
             self._raise_ctx(ctx, "property assignment on non-class value")
@@ -88,7 +88,7 @@ class Expressions:
         if ctx.getChildCount() == 1:
             return base
         cond = base
-        self._ensure_boolean(cond, "condición del operador ternario")
+        self._ensure_boolean(cond, "condición del operador ternario", ctx)
         t_val = self.visit(ctx.expression(0))
         f_val = self.visit(ctx.expression(1))
         # Both arms must be compatible (same base)
@@ -97,7 +97,7 @@ class Expressions:
             if self._expr_type_is_numeric(t_val.type) and self._expr_type_is_numeric(f_val.type):
                 result_t = self._promote_numeric(t_val.type, f_val.type)
             else:
-                raise SemanticError("Incompatible types in ternary branches")
+                self._raise_ctx(ctx, "Incompatible types in ternary branches")
         else:
             result_t = t_val.type
         node = TernaryOp(cond, t_val, f_val)
@@ -111,10 +111,10 @@ class Expressions:
         if len(ctx.logicalAndExpr()) == 1:
             return node
         # From here on there is '||'
-        self._ensure_boolean(node, "operación '||'")
+        self._ensure_boolean(node, "operación '||'" , ctx)
         for i in range(1, len(ctx.logicalAndExpr())):
             right = self.visit(ctx.logicalAndExpr(i))
-            self._ensure_boolean(right, "operación '||'")
+            self._ensure_boolean(right, "operación '||'", ctx)
             node = BinaryOperation(node, right, '||')
             node.type = Type.BOOLEAN
         return node
@@ -126,10 +126,10 @@ class Expressions:
         if len(ctx.equalityExpr()) == 1:
             return node
         # From here on there is '&&'
-        self._ensure_boolean(node, "operación '&&'")
+        self._ensure_boolean(node, "operación '&&'", ctx)
         for i in range(1, len(ctx.equalityExpr())):
             right = self.visit(ctx.equalityExpr(i))
-            self._ensure_boolean(right, "operación '&&'")
+            self._ensure_boolean(right, "operación '&&'", ctx)
             node = BinaryOperation(node, right, '&&')
             node.type = Type.BOOLEAN
         return node
@@ -145,7 +145,7 @@ class Expressions:
                 if self._expr_type_is_numeric(node.type) and self._expr_type_is_numeric(right.type):
                     pass
                 else:
-                    raise SemanticError(f"Comparison '{op}' with different types: {node.type} vs {right.type}")
+                    self._raise_ctx(ctx, f"Comparison '{op}' with different types: {node.type} vs {right.type}")
             node = BinaryOperation(node, right, op)
             node.type = Type.BOOLEAN
         return node
@@ -157,8 +157,8 @@ class Expressions:
             op = ctx.getChild(2*i - 1).getText()
             right = self.visit(ctx.additiveExpr(i))
             # Compatibility: both must be numeric
-            self._ensure_numeric(node, op)
-            self._ensure_numeric(right, op)
+            self._ensure_numeric(node, op, ctx)
+            self._ensure_numeric(right, op, ctx)
             node = BinaryOperation(node, right, op)
             node.type = Type.BOOLEAN
         return node
@@ -171,20 +171,23 @@ class Expressions:
             right = self.visit(ctx.multiplicativeExpr(i))
 
             if op == '+':
-                # if either is string -> concatenation → string
-                if getattr(node, "type", None) == Type.STRING or getattr(right, "type", None) == Type.STRING:
+                lt = getattr(node, "type", None)
+                rt = getattr(right, "type", None)
+
+                if lt == Type.STRING or rt == Type.STRING:
+                    def ok_for_concat(t): return t in (Type.STRING, Type.INTEGER, Type.FLOAT)
+                    if not (ok_for_concat(lt) and ok_for_concat(rt)):
+                        self._raise_ctx(ctx, "Operator '+' with string only allows string/integer/float")
                     node = BinaryOperation(node, right, op)
                     node.type = Type.STRING
                     continue
 
-            # normal arithmetic case
-            self._ensure_numeric(node, op)
-            self._ensure_numeric(right, op)
+            self._ensure_numeric(node, op, ctx)
+            self._ensure_numeric(right, op, ctx)
             result_type = self._promote_numeric(node.type, right.type)
             node = BinaryOperation(node, right, op)
             node.type = result_type
         return node
-
 
     # multiplicativeExpr: unaryExpr ( ('*' | '/' | '%') unaryExpr )*
     def visitMultiplicativeExpr(self, ctx: CompiscriptParser.MultiplicativeExprContext):
@@ -195,11 +198,11 @@ class Expressions:
             # '%' is limited to integer | integer (typical behavior)
             if op == '%':
                 if node.type != Type.INTEGER or right.type != Type.INTEGER:
-                    raise SemanticError("Operator '%' requires integer operands")
+                    self._raise_ctx(ctx, "Operator '%' requires integer operands")
                 result_type = Type.INTEGER
             else:
-                self._ensure_numeric(node, op)
-                self._ensure_numeric(right, op)
+                self._ensure_numeric(node, op, ctx)
+                self._ensure_numeric(right, op, ctx)
                 result_type = self._promote_numeric(node.type, right.type)
             node = BinaryOperation(node, right, op)
             node.type = result_type
@@ -211,13 +214,13 @@ class Expressions:
             op = ctx.getChild(0).getText()
             operand = self.visit(ctx.unaryExpr())
             if op == '-':
-                self._ensure_numeric(operand, op)
+                self._ensure_numeric(operand, op, ctx)
                 t = operand.type
             elif op == '!':
-                self._ensure_boolean(operand, "operator '!'")
+                self._ensure_boolean(operand, "operator '!'", ctx)
                 t = Type.BOOLEAN
             else:
-                raise SemanticError(f"Unknown unary operator: {op}")
+                self._raise_ctx(ctx, f"Unknown unary operator: {op}")
             node = UnaryOperation(operand, op)
             node.type = t
             return node
@@ -292,10 +295,10 @@ class Expressions:
                     sym = self.state.current_scope.lookup(node.name)
                     if getattr(sym, "kind", None) == "func":
                         if len(args) != len(sym.params):
-                            raise SemanticError(f"Function '{node.name}' expects {len(sym.params)} arguments")
+                            self._raise_ctx(ctx, f"Function '{node.name}' expects {len(sym.params)} arguments")
                         for a, p in zip(args, sym.params):
                             if not self._types_compatible_assign(p, a):
-                                raise SemanticError(f"Incompatible argument type for '{node.name}'")
+                                self._raise_ctx(ctx, f"Incompatible argument type for '{node.name}'")
                         ret_tn = sym.return_type
                         call.type_node = ret_tn
                         if ret_tn.dimensions == 0 and self._type_name_is_primitive(ret_tn.base):
@@ -311,10 +314,10 @@ class Expressions:
                 if isinstance(node, PropertyAccess) and hasattr(node, "method_sig"):
                     sig = node.method_sig
                     if len(args) != len(sig["params"]):
-                        raise SemanticError(f"Method '{node.property}' expects {len(sig['params'])} arguments")
+                        self._raise_ctx(ctx, f"Method '{node.property}' expects {len(sig['params'])} arguments")
                     for a, p in zip(args, sig["params"]):
                         if not self._types_compatible_assign(p, a):
-                            raise SemanticError(f"Incompatible argument type for method '{node.property}'")
+                            self._raise_ctx(ctx, f"Incompatible argument type for method '{node.property}'")
                     ret_tn = sig["ret"]
                     call.type_node = ret_tn
                     if ret_tn.dimensions == 0 and self._type_name_is_primitive(ret_tn.base):
@@ -370,7 +373,7 @@ class Expressions:
                         pa.method_sig = mem["sig"]
                 node = pa
             else:
-                raise SemanticError("Unknown suffixOp")
+                self._raise_ctx(ctx, "Unknown suffixOp")
         return node
 
     # primaryAtom alternatives listed:
@@ -411,22 +414,21 @@ class Expressions:
         if "constructor" in cls["methods"]:
             sig = cls["methods"]["constructor"]
             if len(args) != len(sig["params"]):
-                raise SemanticError(f"Constructor of '{class_name}' expects {len(sig['params'])} arguments")
+                self._raise_ctx(ctx, f"Constructor of '{class_name}' expects {len(sig['params'])} arguments")
             for a, p in zip(args, sig["params"]):
                 if not self._types_compatible_assign(p, a):
-                    raise SemanticError(f"Incompatible argument in constructor of '{class_name}'")
+                    self._raise_ctx(ctx, f"Incompatible argument in constructor of '{class_name}'")
         else:
             if len(args) != 0:
-                raise SemanticError(f"Class '{class_name}' does not define a constructor; 0 arguments expected")
+                self._raise_ctx(ctx, f"Class '{class_name}' does not define a constructor; 0 arguments expected")
 
         node = NewExpression(class_name, args)
         node.type_node = TypeNode(base=class_name, dimensions=0)
         return node
 
-
     def visitThisExpr(self, ctx: CompiscriptParser.ThisExprContext):
         if not self.current_class:
-            raise SemanticError("'this' can only be used within class methods")
+            self._raise_ctx(ctx, "'this' can only be used within class methods")
         node = ThisExpression()
         node.type_node = TypeNode(base=self.current_class, dimensions=0)
         return node
