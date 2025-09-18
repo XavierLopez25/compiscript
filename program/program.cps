@@ -182,6 +182,5 @@ let w2: integer = foo();
 print("outer foo = " + w2);
 //------------
 
-
 // Program end
 print("Program finished.");
