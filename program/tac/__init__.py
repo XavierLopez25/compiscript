@@ -46,6 +46,10 @@ from .base_generator import (
     TACGenerationError
 )
 
+from .expression_generator import (
+    ExpressionTACGenerator
+)
+
 __all__ = [
     'TACInstruction',
     'AssignInstruction',
@@ -69,5 +73,6 @@ __all__ = [
     'MemoryLocation',
     'TACGenerator',
     'BaseTACVisitor',
-    'TACGenerationError'
+    'TACGenerationError',
+    'ExpressionTACGenerator'
 ]
