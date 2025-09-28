@@ -40,6 +40,10 @@ from .address_manager import (
     MemoryLocation
 )
 
+from .label_manager import (
+    LabelManager
+)
+
 from .base_generator import (
     TACGenerator,
     BaseTACVisitor,
@@ -48,6 +52,10 @@ from .base_generator import (
 
 from .expression_generator import (
     ExpressionTACGenerator
+)
+
+from .control_flow_generator import (
+    ControlFlowTACGenerator
 )
 
 __all__ = [
@@ -71,8 +79,10 @@ __all__ = [
     'AddressManager',
     'ActivationRecord',
     'MemoryLocation',
+    'LabelManager',
     'TACGenerator',
     'BaseTACVisitor',
     'TACGenerationError',
-    'ExpressionTACGenerator'
+    'ExpressionTACGenerator',
+    'ControlFlowTACGenerator'
 ]

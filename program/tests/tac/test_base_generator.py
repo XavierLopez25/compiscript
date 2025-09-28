@@ -161,6 +161,7 @@ class TestTACGenerator(unittest.TestCase):
         self.assertEqual(stats['instructions_generated'], 2)
         self.assertIn('temporary_stats', stats)
         self.assertIn('address_stats', stats)
+        self.assertIn('label_stats', stats)
 
 class TestBaseTACVisitor(unittest.TestCase):
     """Test cases for BaseTACVisitor class."""

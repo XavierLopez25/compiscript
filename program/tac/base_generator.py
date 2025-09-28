@@ -3,9 +3,15 @@ from abc import ABC, abstractmethod
 
 from AST.ast_nodes import ASTNode
 from AST.symbol_table import Symbol, Scope
-from .instruction import TACInstruction
+from .instruction import (
+    TACInstruction,
+    GotoInstruction,
+    ConditionalGotoInstruction,
+    LabelInstruction
+)
 from .temp_manager import TemporaryManager
 from .address_manager import AddressManager
+from .label_manager import LabelManager
 
 class TACGenerator(ABC):
     """
@@ -17,6 +23,7 @@ class TACGenerator(ABC):
         self.instructions: List[TACInstruction] = []
         self.temp_manager = TemporaryManager()
         self.address_manager = AddressManager()
+        self.label_manager = LabelManager(self.address_manager.generate_label)
         self._symbol_table: Optional[Dict[str, Symbol]] = None
         self._current_scope: Optional[Scope] = None
 
@@ -35,6 +42,11 @@ class TACGenerator(ABC):
         Args:
             instruction: TAC instruction to emit
         """
+        if isinstance(instruction, LabelInstruction):
+            self.label_manager.define_label(instruction.label)
+        elif isinstance(instruction, (GotoInstruction, ConditionalGotoInstruction)):
+            self.label_manager.reference_label(instruction.label)
+
         self.instructions.append(instruction)
 
     def emit_list(self, instructions: List[TACInstruction]) -> None:
@@ -44,7 +56,8 @@ class TACGenerator(ABC):
         Args:
             instructions: List of TAC instructions to emit
         """
-        self.instructions.extend(instructions)
+        for instruction in instructions:
+            self.emit(instruction)
 
     def new_temp(self) -> str:
         """
@@ -74,7 +87,7 @@ class TACGenerator(ABC):
         Returns:
             str: New label name
         """
-        return self.address_manager.generate_label(prefix)
+        return self.label_manager.new_label(prefix)
 
     def enter_scope(self) -> None:
         """Enter a new scope (for temporaries and variables)."""
@@ -125,6 +138,7 @@ class TACGenerator(ABC):
         self.instructions.clear()
         self.temp_manager.reset()
         self.address_manager.reset()
+        self.label_manager.reset()
 
     def get_statistics(self) -> Dict[str, Any]:
         """
@@ -135,11 +149,13 @@ class TACGenerator(ABC):
         """
         temp_stats = self.temp_manager.optimize_usage()
         addr_stats = self.address_manager.get_statistics()
+        label_stats = self.label_manager.get_statistics()
 
         return {
             'instructions_generated': len(self.instructions),
             'temporary_stats': temp_stats,
-            'address_stats': addr_stats
+            'address_stats': addr_stats,
+            'label_stats': label_stats
         }
 
 class BaseTACVisitor(TACGenerator):
