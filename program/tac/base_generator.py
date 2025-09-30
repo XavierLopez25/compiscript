@@ -27,6 +27,13 @@ class TACGenerator(ABC):
         self._symbol_table: Optional[Dict[str, Symbol]] = None
         self._current_scope: Optional[Scope] = None
 
+        # Scope tracking for variable and function renaming (shared state)
+        self._scope_state = {
+            'level': 0,
+            'stack': [{}],  # Stack of {original_name: scoped_name}
+            'function_names': {}  # {original_name: scoped_name} for functions
+        }
+
     def set_symbol_table(self, symbol_table: Dict[str, Symbol]) -> None:
         """Set the symbol table from semantic analysis."""
         self._symbol_table = symbol_table
@@ -93,10 +100,62 @@ class TACGenerator(ABC):
     def enter_scope(self) -> None:
         """Enter a new scope (for temporaries and variables)."""
         self.temp_manager.enter_scope()
+        # Track scope for variable/function renaming
+        self._scope_state['level'] += 1
+        self._scope_state['stack'].append({})
 
     def exit_scope(self) -> None:
         """Exit current scope and clean up temporaries."""
         self.temp_manager.exit_scope()
+        # Clean up scope tracking
+        if self._scope_state['level'] > 0:
+            self._scope_state['stack'].pop()
+            self._scope_state['level'] -= 1
+
+    def get_scoped_name(self, original_name: str, is_declaration: bool = False) -> str:
+        """
+        Get the scoped name for a variable or function.
+
+        Args:
+            original_name: Original variable/function name
+            is_declaration: True if this is a declaration, False if it's a use
+
+        Returns:
+            str: Scoped name (e.g., 'x' becomes 'x_scope1' in nested scope)
+        """
+        # For declarations, create a new scoped name if we're in a nested scope
+        if is_declaration:
+            if self._scope_state['level'] > 0:
+                scoped_name = f"{original_name}_scope{self._scope_state['level']}"
+                # Register in current scope
+                self._scope_state['stack'][-1][original_name] = scoped_name
+                return scoped_name
+            else:
+                # Global scope, use original name
+                self._scope_state['stack'][-1][original_name] = original_name
+                return original_name
+
+        # For uses, look up the name starting from innermost scope
+        for scope_dict in reversed(self._scope_state['stack']):
+            if original_name in scope_dict:
+                return scope_dict[original_name]
+
+        # Not found in any scope, return original name (might be a global or parameter)
+        return original_name
+
+    def register_function_scope(self, original_name: str, scoped_name: str) -> None:
+        """Register a function with its scoped name."""
+        self._scope_state['function_names'][original_name] = scoped_name
+
+    def get_function_scoped_name(self, original_name: str) -> str:
+        """Get the scoped name for a function (for calls)."""
+        # Look in current scope stack first
+        for scope_dict in reversed(self._scope_state['stack']):
+            if original_name in scope_dict:
+                return scope_dict[original_name]
+
+        # Fall back to function registry
+        return self._scope_state['function_names'].get(original_name, original_name)
 
     def get_instructions(self) -> List[TACInstruction]:
         """
@@ -140,6 +199,12 @@ class TACGenerator(ABC):
         self.temp_manager.reset()
         self.address_manager.reset()
         self.label_manager.reset()
+        # Reset scope tracking
+        self._scope_state = {
+            'level': 0,
+            'stack': [{}],
+            'function_names': {}
+        }
 
     def get_statistics(self) -> Dict[str, Any]:
         """

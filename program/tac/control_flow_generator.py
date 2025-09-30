@@ -51,16 +51,19 @@ class ControlFlowTACGenerator(ExpressionTACGenerator):
     # Variable declarations
     # ------------------------------------------------------------------
     def visit_VariableDeclaration(self, node: VariableDeclaration) -> Optional[str]:
+        # Get scoped name for the variable (handles shadowing)
+        scoped_name = self.get_scoped_name(node.name, is_declaration=True)
+
         if node.initializer is not None:
             # Generate code for the initializer expression
             value = self.visit(node.initializer)
-            # Assign the result to the variable
-            self.emit(AssignInstruction(node.name, value))
-            return node.name
+            # Assign the result to the scoped variable name
+            self.emit(AssignInstruction(scoped_name, value))
+            return scoped_name
         else:
             # Variable declaration without initializer
-            self.emit(CommentInstruction(f"Variable declaration: {node.name}"))
-            return node.name
+            self.emit(CommentInstruction(f"Variable declaration: {scoped_name}"))
+            return scoped_name
 
     # ------------------------------------------------------------------
     # Control flow statements
@@ -236,20 +239,91 @@ class ControlFlowTACGenerator(ExpressionTACGenerator):
         self.emit(ReturnInstruction(value))
 
     def visit_TryCatchStatement(self, node) -> None:
-        """Generate TAC for try-catch statement."""
-        # For now, generate a simplified version
-        # In a full implementation, this would include exception handling setup
-        self.emit(CommentInstruction("Try block start"))
+        """
+        Generate TAC for try-catch statement with explicit safety checks.
+        Detects risky operations (array access) and adds bounds checking.
+        """
+        catch_label = self.new_label("catch")
+        end_label = self.new_label("try_end")
 
-        # Generate TAC for try block
-        self.visit(node.try_block)
+        self.emit(CommentInstruction("Try block with safety checks"))
 
-        self.emit(CommentInstruction(f"Catch block start (exception var: {node.exc_name})"))
+        # Process try block statements with safety checks
+        self._generate_try_block_with_checks(node.try_block, catch_label)
+
+        # Jump over catch block if no error
+        self.emit(GotoInstruction(end_label))
+
+        # Catch block
+        self.emit(LabelInstruction(catch_label))
+        self.emit(CommentInstruction(f"Catch block (exception var: {node.exc_name})"))
+
+        # Assign error message to exception variable
+        error_temp = self.new_temp()
+        self.emit(AssignInstruction(error_temp, '"Runtime error occurred"'))
+
+        # Get scoped name for exception variable
+        scoped_exc_name = self.get_scoped_name(node.exc_name, is_declaration=True)
+        self.emit(AssignInstruction(scoped_exc_name, error_temp))
 
         # Generate TAC for catch block
         self.visit(node.catch_block)
 
+        self.emit(LabelInstruction(end_label))
         self.emit(CommentInstruction("Try-catch end"))
+
+    def _generate_try_block_with_checks(self, block, catch_label: str) -> None:
+        """Generate try block with safety checks for risky operations."""
+        from AST.ast_nodes import VariableDeclaration, IndexExpression
+
+        for stmt in block.statements:
+            # Check if statement contains array access
+            if isinstance(stmt, VariableDeclaration) and stmt.initializer:
+                if self._contains_array_access(stmt.initializer):
+                    # Generate bounds checking before the access
+                    self._generate_array_bounds_check(stmt.initializer, catch_label)
+
+            # Generate normal code for the statement
+            self.visit(stmt)
+
+    def _contains_array_access(self, node) -> bool:
+        """Check if an expression tree contains array access."""
+        from AST.ast_nodes import IndexExpression, BinaryOperation, CallExpression
+
+        if isinstance(node, IndexExpression):
+            return True
+        elif isinstance(node, BinaryOperation):
+            return (self._contains_array_access(node.left) or
+                   self._contains_array_access(node.right))
+        elif isinstance(node, CallExpression):
+            return any(self._contains_array_access(arg) for arg in node.arguments)
+
+        return False
+
+    def _generate_array_bounds_check(self, node, catch_label: str) -> None:
+        """Generate bounds checking code for array access."""
+        from AST.ast_nodes import IndexExpression
+
+        if isinstance(node, IndexExpression):
+            # Evaluate array and index
+            array_temp = self.visit(node.array)
+            index_temp = self.visit(node.index)
+
+            # Get array length
+            length_temp = self.new_temp()
+            self.emit(AssignInstruction(length_temp, array_temp, "len"))
+
+            # Check if index < length
+            check_temp = self.new_temp()
+            self.emit(AssignInstruction(check_temp, index_temp, "<", length_temp))
+
+            # If check fails (index >= length), jump to catch
+            self.emit(ConditionalGotoInstruction(check_temp, catch_label, "0", "=="))
+
+            # Also check if index >= 0
+            zero_check_temp = self.new_temp()
+            self.emit(AssignInstruction(zero_check_temp, index_temp, ">=", "0"))
+            self.emit(ConditionalGotoInstruction(zero_check_temp, catch_label, "0", "=="))
 
     # ------------------------------------------------------------------
     # Generic handler fallbacks
@@ -261,8 +335,17 @@ class ControlFlowTACGenerator(ExpressionTACGenerator):
         """
         node_type = node.__class__.__name__
 
+        # Delegate FunctionDeclaration to function generator (for nested functions)
+        if node_type == 'FunctionDeclaration' and hasattr(self, '_function_generator') and self._function_generator:
+            # Sync instructions
+            self._function_generator.instructions = self.get_instructions()
+            result = self._function_generator.visit_FunctionDeclaration(node)
+            # Sync back
+            self.instructions = self._function_generator.get_instructions()
+            return result
+
         # Delegate PrintStatement to function generator
-        if node_type == 'PrintStatement' and hasattr(self, '_function_generator') and self._function_generator:
+        elif node_type == 'PrintStatement' and hasattr(self, '_function_generator') and self._function_generator:
             # Sync instructions
             self._function_generator.instructions = self.get_instructions()
             result = self._function_generator.visit_PrintStatement(node)

@@ -52,7 +52,8 @@ class ExpressionTACGenerator(BaseTACVisitor):
 
     def visit_Variable(self, node: Variable) -> str:
         """Generate TAC for variable access."""
-        return node.name
+        # Look up the scoped name for this variable
+        return self.get_scoped_name(node.name, is_declaration=False)
 
     def visit_ThisExpression(self, node) -> str:
         """Generate TAC for 'this' reference in methods."""
@@ -292,8 +293,30 @@ class ExpressionTACGenerator(BaseTACVisitor):
         from .instruction import NewInstruction, PushParamInstruction, CallInstruction, PopParamsInstruction
         self.emit(NewInstruction(instance_temp, node.class_name))
 
-        # Call the constructor
+        # Determine which constructor to call
+        # If the class has no explicit constructor but has a parent, use parent's constructor
         constructor_name = f"{node.class_name}_constructor"
+        actual_constructor = constructor_name
+
+        # Check if we should use parent constructor
+        if hasattr(self, '_function_generator') and self._function_generator:
+            # Check if this class has an explicit constructor or just a default one
+            class_registry = self._function_generator._class_registry
+            if node.class_name in class_registry:
+                class_node = class_registry[node.class_name]
+
+                # Check if class has explicit constructor
+                has_explicit_constructor = False
+                for member in class_node.members:
+                    if hasattr(member, 'name') and member.name == 'constructor':
+                        has_explicit_constructor = True
+                        break
+
+                # If no explicit constructor and has arguments, try parent class
+                if not has_explicit_constructor and len(node.arguments) > 0:
+                    if hasattr(class_node, 'superclass') and class_node.superclass:
+                        # Use parent's constructor
+                        actual_constructor = f"{class_node.superclass}_constructor"
 
         # Push constructor arguments (if any)
         for arg in node.arguments:
@@ -306,7 +329,7 @@ class ExpressionTACGenerator(BaseTACVisitor):
         # Call constructor
         constructor_result = self.new_temp()
         total_params = len(node.arguments) + 1  # arguments + this
-        self.emit(CallInstruction(constructor_name, total_params, constructor_result))
+        self.emit(CallInstruction(actual_constructor, total_params, constructor_result))
 
         # Clean up parameters
         self.emit(PopParamsInstruction(total_params))

@@ -64,6 +64,10 @@ class FunctionTACGenerator(BaseTACVisitor):
         self.expression_generator.label_manager = self.label_manager
         self.control_flow_generator.label_manager = self.label_manager
 
+        # Share scope tracking
+        self.expression_generator._scope_state = self._scope_state
+        self.control_flow_generator._scope_state = self._scope_state
+
         # Set function generator reference for call expressions
         self.expression_generator._function_generator = self
         self.control_flow_generator._function_generator = self
@@ -78,11 +82,17 @@ class FunctionTACGenerator(BaseTACVisitor):
         Returns:
             None (function declarations don't return values)
         """
-        function_name = node.name
-        # Only register if not already registered (from pre-pass)
-        if function_name not in self._function_registry:
-            self._function_registry[function_name] = node
-        self._current_function = function_name
+        # Get scoped name for the function (handles nested functions)
+        scoped_function_name = self.get_scoped_name(node.name, is_declaration=True)
+
+        # Register both original and scoped names
+        if node.name not in self._function_registry:
+            self._function_registry[node.name] = node
+        if scoped_function_name not in self._function_registry:
+            self._function_registry[scoped_function_name] = node
+
+        self._current_function = scoped_function_name
+        function_name = scoped_function_name
 
         # Extract parameter names
         param_names = [param.name for param in node.parameters]
@@ -291,8 +301,8 @@ class FunctionTACGenerator(BaseTACVisitor):
         this_object = None
 
         if hasattr(node.callee, 'name'):
-            # Simple function call
-            function_name = node.callee.name
+            # Simple function call - resolve scoped name
+            function_name = self.get_scoped_name(node.callee.name, is_declaration=False)
         elif hasattr(node.callee, 'property'):
             # Method call: object.method()
             from AST.ast_nodes import PropertyAccess
@@ -374,7 +384,11 @@ class FunctionTACGenerator(BaseTACVisitor):
             expected_params = len(func_decl.parameters)
 
             # For method calls, add 1 for the implicit 'this' parameter
-            if is_method_call or '_' in function_name:  # Class methods have underscore in name
+            # Check if it's a class method (has underscore but not _scope pattern)
+            is_class_method = ('_' in function_name and
+                              not function_name.endswith('_scope' + function_name.split('_scope')[-1]) and
+                              '_scope' not in function_name)
+            if is_method_call or is_class_method:
                 expected_params += 1
 
             has_return_value = (func_decl.return_type and

@@ -50,6 +50,11 @@ class IntegratedTACGenerator(BaseTACVisitor):
         self.control_flow_generator.label_manager = self.label_manager
         self.function_generator.label_manager = self.label_manager
 
+        # Share scope tracking for variable/function shadowing (by reference)
+        self.expression_generator._scope_state = self._scope_state
+        self.control_flow_generator._scope_state = self._scope_state
+        self.function_generator._scope_state = self._scope_state
+
         # Set cross-references between function and other generators
         self.function_generator.set_expression_generator(self.expression_generator)
         self.function_generator.set_control_flow_generator(self.control_flow_generator)
