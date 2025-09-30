@@ -66,6 +66,7 @@ class FunctionTACGenerator(BaseTACVisitor):
 
         # Set function generator reference for call expressions
         self.expression_generator._function_generator = self
+        self.control_flow_generator._function_generator = self
 
     def visit_FunctionDeclaration(self, node: FunctionDeclaration) -> Optional[str]:
         """
@@ -149,8 +150,8 @@ class FunctionTACGenerator(BaseTACVisitor):
         constructor_found = False
         for member in node.members:
             if isinstance(member, FunctionDeclaration):
-                # Check if it's a constructor
-                is_constructor = member.name == class_name
+                # Check if it's a constructor (named "constructor")
+                is_constructor = member.name == "constructor"
                 if is_constructor:
                     constructor_found = True
                     self._generate_constructor_tac(member, class_name)
@@ -160,7 +161,7 @@ class FunctionTACGenerator(BaseTACVisitor):
                 # Handle class fields (for future implementation)
                 self.emit(CommentInstruction(f"Field: {member.name}"))
 
-        # Generate default constructor if none found
+        # Generate default constructor only if none found
         if not constructor_found:
             self._generate_default_constructor(class_name)
 
@@ -180,10 +181,10 @@ class FunctionTACGenerator(BaseTACVisitor):
         self.enter_scope()
 
         # Emit constructor prologue
-        self.emit(CommentInstruction(f"Constructor: {class_name}"))
+        self.emit(CommentInstruction(f"Method: {class_name}.constructor"))
         self.emit(BeginFuncInstruction(constructor_name, len(param_names)))
 
-        func_label = f"constructor_{class_name}"
+        func_label = f"method_{class_name}_constructor"
         self.emit(LabelInstruction(func_label))
 
         # Allocate space for parameters and local variables
@@ -193,9 +194,11 @@ class FunctionTACGenerator(BaseTACVisitor):
         # Generate TAC for constructor body
         self._generate_block_tac(constructor.body)
 
-        # Implicit return 'this' if no explicit return
-        if (not constructor.body.statements or
-            not isinstance(constructor.body.statements[-1], ReturnStatement)):
+        # Always return 'this' from constructor (implicit or explicit)
+        # Check if last statement is already a return
+        has_explicit_return = (constructor.body.statements and
+                               isinstance(constructor.body.statements[-1], ReturnStatement))
+        if not has_explicit_return:
             self.emit(ReturnInstruction('this'))
 
         # Emit constructor epilogue
@@ -298,17 +301,59 @@ class FunctionTACGenerator(BaseTACVisitor):
                 this_object = self.expression_generator.visit(node.callee.object)
                 method_name = node.callee.property
 
-                # Try to determine the class name from the object
-                # For now, assume the object is the class instance
-                # We'll look for ClassName_methodName in registry
-                function_name = None
-                for registered_name in self._function_registry.keys():
-                    if registered_name.endswith(f"_{method_name}"):
-                        function_name = registered_name
-                        break
+                # Try to determine the class name from the object's type
+                # First, try to get the type from the callee's object node
+                class_name = None
+                if hasattr(node.callee.object, 'type') and node.callee.object.type:
+                    # Get the class name from the type
+                    type_obj = node.callee.object.type
+                    if hasattr(type_obj, 'base'):
+                        class_name = type_obj.base
+                    elif isinstance(type_obj, str):
+                        class_name = type_obj
 
-                if not function_name:
-                    function_name = method_name  # Fallback to simple name
+                # If type is None, try to infer from variable name by looking at recent assignments
+                # Check if it's a simple variable (has 'name' attribute)
+                if not class_name and hasattr(node.callee.object, 'name'):
+                    var_name = node.callee.object.name
+                    # Look through recent instructions for NewExpression assignments to this variable
+                    for instr in reversed(self.get_instructions()):
+                        instr_str = str(instr)
+                        # Look for patterns like: "dog = t15" after "t15 = new Dog"
+                        if f"{var_name} =" in instr_str:
+                            # Found assignment to our variable, now look back for the new instruction
+                            for prev_instr in reversed(self.get_instructions()):
+                                prev_str = str(prev_instr)
+                                if "= new " in prev_str and any(temp in instr_str for temp in [f"t{i}" for i in range(100)]):
+                                    # Extract class name from "t15 = new Dog"
+                                    parts = prev_str.split("= new ")
+                                    if len(parts) == 2:
+                                        class_name = parts[1].strip()
+                                        break
+                            break
+
+                # If we found the class name, construct the qualified method name
+                if class_name:
+                    function_name = f"{class_name}_{method_name}"
+                    # Verify it exists in registry, otherwise try parent class
+                    if function_name not in self._function_registry:
+                        # Try to find in parent classes
+                        if class_name in self._class_registry:
+                            class_node = self._class_registry[class_name]
+                            if hasattr(class_node, 'superclass') and class_node.superclass:
+                                parent_method = f"{class_node.superclass}_{method_name}"
+                                if parent_method in self._function_registry:
+                                    function_name = parent_method
+                else:
+                    # Fallback: search all registered methods
+                    function_name = None
+                    for registered_name in self._function_registry.keys():
+                        if registered_name.endswith(f"_{method_name}"):
+                            function_name = registered_name
+                            break
+
+                    if not function_name:
+                        function_name = method_name  # Final fallback to simple name
             else:
                 # For other complex expressions as callees, evaluate first
                 function_name = self.expression_generator.visit(node.callee)
@@ -359,7 +404,12 @@ class FunctionTACGenerator(BaseTACVisitor):
         # Evaluate arguments and push parameters (right to left)
         arg_temps = []
         for arg in node.arguments:
+            # Sync instructions with expression generator
+            self.expression_generator.instructions = self.get_instructions()
             arg_temp = self.expression_generator.visit(arg)
+            # Sync back instructions
+            self.instructions = self.expression_generator.get_instructions()
+
             if not arg_temp:
                 raise TACGenerationError("Failed to evaluate argument", arg)
             arg_temps.append(arg_temp)
@@ -465,6 +515,9 @@ class FunctionTACGenerator(BaseTACVisitor):
                 self.control_flow_generator.instructions = self.get_instructions()
                 result = self.control_flow_generator.visit_VariableDeclaration(stmt)
                 self.instructions = self.control_flow_generator.get_instructions()
+            elif hasattr(stmt, '__class__') and stmt.__class__.__name__ == 'PrintStatement':
+                # Handle print statements
+                self.visit_PrintStatement(stmt)
             else:
                 # Delegate to appropriate generators with state synchronization
                 stmt_type = stmt.__class__.__name__
@@ -514,6 +567,26 @@ class FunctionTACGenerator(BaseTACVisitor):
                 return then_returns and else_returns
 
         return False
+
+    def visit_PrintStatement(self, node) -> Optional[str]:
+        """Generate TAC for print statement (built-in function)."""
+        from AST.ast_nodes import PrintStatement
+
+        # Sync instructions with expression generator
+        self.expression_generator.instructions = self.get_instructions()
+
+        # Evaluate the expression to print
+        expr_result = self.expression_generator.visit(node.expression)
+
+        # Sync back instructions
+        self.instructions = self.expression_generator.get_instructions()
+
+        # Generate call to print built-in
+        self.emit(PushParamInstruction(expr_result))
+        self.emit(CallInstruction("print", 1))
+        self.emit(PopParamsInstruction(1))
+
+        return None
 
     def _statement_always_returns(self, stmt) -> bool:
         """Check if a statement always returns."""

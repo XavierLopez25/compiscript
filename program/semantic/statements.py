@@ -266,7 +266,8 @@ class Statements:
         exc_name  = ctx.Identifier().getText()
         old = self.state.current_scope
         self.state.current_scope = Scope(parent=old)
-        self.state.current_scope.define(Symbol(exc_name, TypeNode(base="any"), is_const=True))
+        # Exception variable is treated as string for message concatenation
+        self.state.current_scope.define(Symbol(exc_name, TypeNode(base="string"), is_const=True))
         catch_block = self.visit(ctx.block(1))
         self.state.current_scope = old
 

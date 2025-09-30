@@ -54,6 +54,10 @@ class ExpressionTACGenerator(BaseTACVisitor):
         """Generate TAC for variable access."""
         return node.name
 
+    def visit_ThisExpression(self, node) -> str:
+        """Generate TAC for 'this' reference in methods."""
+        return "this"
+
     # ============ BINARY OPERATIONS ============
 
     def visit_BinaryOperation(self, node: BinaryOperation) -> str:

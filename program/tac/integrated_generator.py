@@ -54,6 +54,10 @@ class IntegratedTACGenerator(BaseTACVisitor):
         self.function_generator.set_expression_generator(self.expression_generator)
         self.function_generator.set_control_flow_generator(self.control_flow_generator)
 
+        # Set function generator reference in expression and control flow generators
+        self.expression_generator._function_generator = self.function_generator
+        self.control_flow_generator._function_generator = self.function_generator
+
     def generate_program(self, program: Program) -> List[str]:
         """
         Generate complete TAC for a CompilScript program.
@@ -188,10 +192,15 @@ class IntegratedTACGenerator(BaseTACVisitor):
         if isinstance(node, (CallExpression, ReturnStatement)):
             return self._delegate_to_function_generator(node)
 
-        # Control flow nodes
+        # Print statement (treated as function call)
+        elif node_type == 'PrintStatement':
+            return self._delegate_to_function_generator(node)
+
+        # Control flow nodes (including VariableDeclaration which may appear in blocks)
         elif node_type in ['IfStatement', 'WhileStatement', 'ForStatement',
                           'DoWhileStatement', 'SwitchStatement', 'BreakStatement',
-                          'ContinueStatement', 'Block']:
+                          'ContinueStatement', 'Block', 'ForEachStatement', 'TryCatchStatement',
+                          'VariableDeclaration']:
             return self._delegate_to_control_flow_generator(node)
 
         # Expression nodes
@@ -243,6 +252,8 @@ class IntegratedTACGenerator(BaseTACVisitor):
             result = self.function_generator.visit_CallExpression(node)
         elif isinstance(node, ReturnStatement):
             result = self.function_generator.visit_ReturnStatement(node)
+        elif node.__class__.__name__ == 'PrintStatement':
+            result = self.function_generator.visit_PrintStatement(node)
         else:
             result = self.function_generator.generate(node)
 

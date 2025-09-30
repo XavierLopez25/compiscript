@@ -235,8 +235,48 @@ class ControlFlowTACGenerator(ExpressionTACGenerator):
         value = self.visit(node.value) if node.value is not None else None
         self.emit(ReturnInstruction(value))
 
+    def visit_TryCatchStatement(self, node) -> None:
+        """Generate TAC for try-catch statement."""
+        # For now, generate a simplified version
+        # In a full implementation, this would include exception handling setup
+        self.emit(CommentInstruction("Try block start"))
+
+        # Generate TAC for try block
+        self.visit(node.try_block)
+
+        self.emit(CommentInstruction(f"Catch block start (exception var: {node.exc_name})"))
+
+        # Generate TAC for catch block
+        self.visit(node.catch_block)
+
+        self.emit(CommentInstruction("Try-catch end"))
+
     # ------------------------------------------------------------------
     # Generic handler fallbacks
     # ------------------------------------------------------------------
     def generic_visit(self, node: ASTNode) -> Optional[str]:
+        """
+        Handle nodes that don't have specific visitors in control flow generator.
+        Delegates to function generator for PrintStatement and other function-related nodes.
+        """
+        node_type = node.__class__.__name__
+
+        # Delegate PrintStatement to function generator
+        if node_type == 'PrintStatement' and hasattr(self, '_function_generator') and self._function_generator:
+            # Sync instructions
+            self._function_generator.instructions = self.get_instructions()
+            result = self._function_generator.visit_PrintStatement(node)
+            # Sync back
+            self.instructions = self._function_generator.get_instructions()
+            return result
+
+        # Delegate CallExpression to function generator (for standalone calls)
+        elif node_type == 'CallExpression' and hasattr(self, '_function_generator') and self._function_generator:
+            # Sync instructions
+            self._function_generator.instructions = self.get_instructions()
+            result = self._function_generator.visit_CallExpression(node)
+            # Sync back
+            self.instructions = self._function_generator.get_instructions()
+            return result
+
         return super().generic_visit(node)
