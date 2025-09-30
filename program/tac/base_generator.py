@@ -77,17 +77,18 @@ class TACGenerator(ABC):
         """
         self.temp_manager.release_temp(temp)
 
-    def new_label(self, prefix: str = "L") -> str:
+    def new_label(self, prefix: str = "L", hint: Optional[str] = None) -> str:
         """
         Generate a new label for control flow.
 
         Args:
             prefix: Label prefix
+            hint: Optional semantic hint for label name
 
         Returns:
             str: New label name
         """
-        return self.label_manager.new_label(prefix)
+        return self.label_manager.new_label(prefix, hint)
 
     def enter_scope(self) -> None:
         """Enter a new scope (for temporaries and variables)."""

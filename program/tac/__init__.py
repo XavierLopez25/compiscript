@@ -58,6 +58,14 @@ from .control_flow_generator import (
     ControlFlowTACGenerator
 )
 
+from .function_generator import (
+    FunctionTACGenerator
+)
+
+from .integrated_generator import (
+    IntegratedTACGenerator
+)
+
 __all__ = [
     'TACInstruction',
     'AssignInstruction',
@@ -84,5 +92,7 @@ __all__ = [
     'BaseTACVisitor',
     'TACGenerationError',
     'ExpressionTACGenerator',
-    'ControlFlowTACGenerator'
+    'ControlFlowTACGenerator',
+    'FunctionTACGenerator',
+    'IntegratedTACGenerator'
 ]

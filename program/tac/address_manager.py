@@ -32,6 +32,7 @@ class AddressManager:
     def __init__(self):
         self._global_vars: Dict[str, MemoryLocation] = {}
         self._activation_records: List[ActivationRecord] = []
+        self._completed_records: Dict[str, ActivationRecord] = {}  # Store completed function records
         self._label_counter = 0
         self._current_offset = 0
         self._word_size = 4  # 4 bytes per word (typical for 32-bit systems)
@@ -215,12 +216,16 @@ class AddressManager:
     def exit_function(self) -> Optional[ActivationRecord]:
         """
         Exit the current function scope by removing its activation record.
+        Stores the completed record for later retrieval.
 
         Returns:
             Optional[ActivationRecord]: Removed activation record or None
         """
         if self._activation_records:
-            return self._activation_records.pop()
+            record = self._activation_records.pop()
+            # Store completed record for later queries
+            self._completed_records[record.function_name] = record
+            return record
         return None
 
     def generate_label(self, prefix: str = "L") -> str:
@@ -258,9 +263,13 @@ class AddressManager:
             int: Size of activation record in bytes
         """
         if function_name:
+            # Check active records first
             for record in self._activation_records:
                 if record.function_name == function_name:
                     return record.total_size
+            # Check completed records
+            if function_name in self._completed_records:
+                return self._completed_records[function_name].total_size
             return 0
 
         if self._activation_records:
@@ -271,6 +280,7 @@ class AddressManager:
         """Reset the address manager to initial state."""
         self._global_vars.clear()
         self._activation_records.clear()
+        self._completed_records.clear()
         self._label_counter = 0
         self._current_offset = 0
 
