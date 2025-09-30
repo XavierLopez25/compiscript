@@ -196,7 +196,8 @@ class IntegratedTACGenerator(BaseTACVisitor):
 
         # Expression nodes
         elif node_type in ['BinaryExpression', 'UnaryExpression', 'AssignmentStatement',
-                          'Identifier', 'Literal', 'PropertyAccess', 'IndexExpression']:
+                          'Identifier', 'Literal', 'PropertyAccess', 'IndexExpression',
+                          'NewExpression', 'BinaryOperation']:
             return self._delegate_to_expression_generator(node)
 
         else:

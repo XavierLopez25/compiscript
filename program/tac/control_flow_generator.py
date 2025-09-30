@@ -25,7 +25,8 @@ from .instruction import (
     ConditionalGotoInstruction,
     LabelInstruction,
     ReturnInstruction,
-    ArrayAccessInstruction
+    ArrayAccessInstruction,
+    CommentInstruction
 )
 from .base_generator import TACGenerationError
 
@@ -51,17 +52,21 @@ class ControlFlowTACGenerator(ExpressionTACGenerator):
     # ------------------------------------------------------------------
     def visit_VariableDeclaration(self, node: VariableDeclaration) -> Optional[str]:
         if node.initializer is not None:
+            # Generate code for the initializer expression
             value = self.visit(node.initializer)
+            # Assign the result to the variable
             self.emit(AssignInstruction(node.name, value))
             return node.name
-        return None
+        else:
+            # Variable declaration without initializer
+            self.emit(CommentInstruction(f"Variable declaration: {node.name}"))
+            return node.name
 
     # ------------------------------------------------------------------
     # Control flow statements
     # ------------------------------------------------------------------
     def visit_IfStatement(self, node: IfStatement) -> None:
         false_label = self.new_label("if_false")
-        end_label = self.new_label("if_end") if node.else_branch else false_label
 
         condition = self.visit(node.condition)
         self.emit(ConditionalGotoInstruction(condition, false_label, "0", "=="))
@@ -69,12 +74,34 @@ class ControlFlowTACGenerator(ExpressionTACGenerator):
         self.visit(node.then_branch)
 
         if node.else_branch:
-            self.emit(GotoInstruction(end_label))
+            # Check if then_branch ends with a return/goto (no need for goto end_label)
+            then_has_exit = self._statement_has_exit(node.then_branch)
+
+            if not then_has_exit:
+                end_label = self.new_label("if_end")
+                self.emit(GotoInstruction(end_label))
+
             self.emit(LabelInstruction(false_label))
             self.visit(node.else_branch)
-            self.emit(LabelInstruction(end_label))
+
+            if not then_has_exit:
+                self.emit(LabelInstruction(end_label))
         else:
             self.emit(LabelInstruction(false_label))
+
+    def _statement_has_exit(self, stmt) -> bool:
+        """Check if a statement/block ends with return, break, continue, or goto."""
+        from AST.ast_nodes import Block, ReturnStatement, BreakStatement, ContinueStatement
+
+        if isinstance(stmt, ReturnStatement):
+            return True
+        elif isinstance(stmt, (BreakStatement, ContinueStatement)):
+            return True
+        elif isinstance(stmt, Block) and stmt.statements:
+            # Check the last statement in the block
+            return self._statement_has_exit(stmt.statements[-1])
+        else:
+            return False
 
     def visit_WhileStatement(self, node: WhileStatement) -> None:
         start_label = self.new_label("while_start")

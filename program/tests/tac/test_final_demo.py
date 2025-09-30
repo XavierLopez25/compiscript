@@ -17,7 +17,11 @@ from AST.ast_nodes import (
     Variable,
     Literal,
     VariableDeclaration,
-    Type
+    Type,
+    BinaryOperation,
+    IfStatement,
+    NewExpression,
+    PropertyAccess
 )
 
 
@@ -74,11 +78,29 @@ class TestFinalTACDemo(unittest.TestCase):
         # }
 
         # 1. Factorial function (recursive)
+        # func factorial(n: int): int {
+        #     if (n <= 1) return 1;
+        #     return n * factorial(n - 1);
+        # }
         fib_param = Parameter("n", TypeNode("int"))
-        # Simplified recursive call
-        recursive_call = CallExpression(Variable("factorial"), [Literal(1, Type.INTEGER)])
-        fib_return = ReturnStatement(recursive_call)
-        fib_body = Block([fib_return])
+
+        # Create the if condition: n <= 1
+        n_var = Variable("n")
+        one_lit = Literal(1, Type.INTEGER)
+        condition = BinaryOperation(n_var, one_lit, "<=")
+
+        # Then branch: return 1
+        then_return = ReturnStatement(one_lit)
+
+        # Else branch: return n * factorial(n - 1)
+        n_minus_1 = BinaryOperation(Variable("n"), Literal(1, Type.INTEGER), "-")
+        recursive_call = CallExpression(Variable("factorial"), [n_minus_1])
+        multiplication = BinaryOperation(Variable("n"), recursive_call, "*")
+        else_return = ReturnStatement(multiplication)
+
+        # Complete if statement
+        if_stmt = IfStatement(condition, then_return, else_return)
+        fib_body = Block([if_stmt])
         factorial_func = FunctionDeclaration("factorial", [fib_param], TypeNode("int"), fib_body)
 
         # 2. Calculator class with constructor and method
@@ -87,21 +109,40 @@ class TestFinalTACDemo(unittest.TestCase):
         constructor = FunctionDeclaration("Calculator", [], TypeNode("void"), constructor_body)
 
         # Compute method
+        # compute(x: int, y: int): int {
+        #     return factorial(x) + factorial(y);
+        # }
         compute_params = [Parameter("x", TypeNode("int")), Parameter("y", TypeNode("int"))]
-        # Simplified method body with function calls
-        fact_call1 = CallExpression(Variable("factorial"), [Variable("x")])
-        fact_call2 = CallExpression(Variable("factorial"), [Variable("y")])
-        compute_return = ReturnStatement(fact_call1)  # Simplified
+
+        # Create function calls: factorial(x) and factorial(y)
+        fact_call_x = CallExpression(Variable("factorial"), [Variable("x")])
+        fact_call_y = CallExpression(Variable("factorial"), [Variable("y")])
+
+        # Add the results: factorial(x) + factorial(y)
+        addition = BinaryOperation(fact_call_x, fact_call_y, "+")
+        compute_return = ReturnStatement(addition)
         compute_body = Block([compute_return])
         compute_method = FunctionDeclaration("compute", compute_params, TypeNode("int"), compute_body)
 
         calculator_class = ClassDeclaration("Calculator", None, [constructor, compute_method])
 
         # 3. Main function
-        # Simplified main function
-        main_call = CallExpression(Variable("compute"), [Literal(3, Type.INTEGER), Literal(4, Type.INTEGER)])
-        main_return = ReturnStatement(main_call)
-        main_body = Block([main_return])
+        # func main(): int {
+        #     Calculator calc = new Calculator();
+        #     return calc.compute(3, 4);
+        # }
+
+        # Create Calculator instance: Calculator calc = new Calculator();
+        new_calc = NewExpression("Calculator", [])
+        calc_decl = VariableDeclaration("calc", TypeNode("Calculator"), new_calc)
+
+        # Call calc.compute(3, 4)
+        calc_var = Variable("calc")
+        compute_access = PropertyAccess(calc_var, "compute")
+        method_call = CallExpression(compute_access, [Literal(3, Type.INTEGER), Literal(4, Type.INTEGER)])
+        main_return = ReturnStatement(method_call)
+
+        main_body = Block([calc_decl, main_return])
         main_func = FunctionDeclaration("main", [], TypeNode("int"), main_body)
 
         # 4. Complete program
@@ -133,7 +174,7 @@ class TestFinalTACDemo(unittest.TestCase):
 
         # FUNC-002: Function calls
         self.assertIn("call factorial", tac_content)
-        self.assertIn("call compute", tac_content)
+        self.assertIn("call Calculator_compute", tac_content)
 
         # FUNC-003: Parameter handling
         self.assertIn("PushParam", tac_content)
@@ -142,8 +183,9 @@ class TestFinalTACDemo(unittest.TestCase):
         # FUNC-004: Return statements
         self.assertIn("return", tac_content)
 
-        # REC-001: Recursive functions
-        self.assertIn("Recursive call to factorial", tac_content)
+        # REC-001: Recursive functions (verified by presence of factorial call within factorial)
+        factorial_section = tac_content[tac_content.find("BeginFunc factorial"):tac_content.find("EndFunc factorial")]
+        self.assertIn("call factorial", factorial_section)
 
         # CLASS-001: Class methods and constructors
         self.assertIn("Class: Calculator", tac_content)

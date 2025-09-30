@@ -18,6 +18,7 @@ class ExpressionTACGenerator(BaseTACVisitor):
 
     def __init__(self):
         super().__init__()
+        self._function_generator = None  # Will be set by parent generator
         self._operator_mapping = {
             # Arithmetic operators
             '+': '+',
@@ -274,6 +275,79 @@ class ExpressionTACGenerator(BaseTACVisitor):
             self.emit(instruction)
 
         return result_temp
+
+    def visit_NewExpression(self, node) -> str:
+        """Generate TAC for object creation (new ClassName()) with constructor call."""
+        # Create the object instance
+        instance_temp = self.new_temp()
+
+        # Emit comment for object creation
+        self.emit(CommentInstruction(f"Create new instance of {node.class_name}"))
+
+        # Generate new instruction
+        from .instruction import NewInstruction, PushParamInstruction, CallInstruction, PopParamsInstruction
+        self.emit(NewInstruction(instance_temp, node.class_name))
+
+        # Call the constructor
+        constructor_name = f"{node.class_name}_constructor"
+
+        # Push constructor arguments (if any)
+        for arg in node.arguments:
+            arg_temp = self.visit(arg)
+            self.emit(PushParamInstruction(arg_temp))
+
+        # Push 'this' parameter (the instance we just created)
+        self.emit(PushParamInstruction(instance_temp))
+
+        # Call constructor
+        constructor_result = self.new_temp()
+        total_params = len(node.arguments) + 1  # arguments + this
+        self.emit(CallInstruction(constructor_name, total_params, constructor_result))
+
+        # Clean up parameters
+        self.emit(PopParamsInstruction(total_params))
+
+        # Return the constructed object (could be instance_temp or constructor_result)
+        # Most constructors return 'this', so we use the constructor result
+        return constructor_result
+
+    def visit_CallExpression(self, node) -> str:
+        """Handle function calls within expressions by delegating to function generator."""
+        if self._function_generator:
+            # Sync instructions before delegating
+            self._function_generator.instructions = self.get_instructions()
+            result = self._function_generator.visit_CallExpression(node)
+            # Sync back instructions
+            self.instructions = self._function_generator.get_instructions()
+            return result
+        else:
+            # If no function generator is available, generate a basic call
+            # This shouldn't normally happen, but provides a working fallback
+            result_temp = self.new_temp()
+            from .instruction import CommentInstruction, PushParamInstruction, CallInstruction, PopParamsInstruction
+
+            # Get function name
+            if hasattr(node.callee, 'name'):
+                function_name = node.callee.name
+            else:
+                function_name = str(node.callee)
+
+            # Generate basic call
+            self.emit(CommentInstruction(f"Fallback call to {function_name}"))
+
+            # Push parameters
+            for arg in node.arguments:
+                arg_temp = self.visit(arg)
+                self.emit(PushParamInstruction(arg_temp))
+
+            # Call function
+            self.emit(CallInstruction(function_name, len(node.arguments), result_temp))
+
+            # Pop parameters
+            if len(node.arguments) > 0:
+                self.emit(PopParamsInstruction(len(node.arguments)))
+
+            return result_temp
 
     # ============ TYPE CONVERSION HELPERS ============
 

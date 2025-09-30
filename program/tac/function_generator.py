@@ -47,6 +47,26 @@ class FunctionTACGenerator(BaseTACVisitor):
         self._current_function: Optional[str] = None
         self._current_class: Optional[str] = None
 
+        # Share infrastructure between generators
+        self._sync_infrastructure()
+
+    def _sync_infrastructure(self):
+        """Share infrastructure components between generators."""
+        # Share temp manager
+        self.expression_generator.temp_manager = self.temp_manager
+        self.control_flow_generator.temp_manager = self.temp_manager
+
+        # Share address manager
+        self.expression_generator.address_manager = self.address_manager
+        self.control_flow_generator.address_manager = self.address_manager
+
+        # Share label manager
+        self.expression_generator.label_manager = self.label_manager
+        self.control_flow_generator.label_manager = self.label_manager
+
+        # Set function generator reference for call expressions
+        self.expression_generator._function_generator = self
+
     def visit_FunctionDeclaration(self, node: FunctionDeclaration) -> Optional[str]:
         """
         Generate TAC for function declaration.
@@ -87,9 +107,8 @@ class FunctionTACGenerator(BaseTACVisitor):
         # Generate TAC for function body
         self._generate_block_tac(node.body)
 
-        # Emit implicit return if no explicit return at end
-        if (not node.body.statements or
-            not isinstance(node.body.statements[-1], ReturnStatement)):
+        # Emit implicit return if function can reach the end without returning
+        if not self._function_always_returns(node.body):
             if node.return_type and node.return_type.base != "void":
                 # Return default value for non-void functions
                 default_val = self._get_default_value(node.return_type.base)
@@ -264,9 +283,37 @@ class FunctionTACGenerator(BaseTACVisitor):
         Returns:
             str: Temporary variable holding return value (if any)
         """
-        # Handle function name
+        # Handle function name and method calls
+        is_method_call = False
+        this_object = None
+
         if hasattr(node.callee, 'name'):
+            # Simple function call
             function_name = node.callee.name
+        elif hasattr(node.callee, 'property'):
+            # Method call: object.method()
+            from AST.ast_nodes import PropertyAccess
+            if isinstance(node.callee, PropertyAccess):
+                is_method_call = True
+                this_object = self.expression_generator.visit(node.callee.object)
+                method_name = node.callee.property
+
+                # Try to determine the class name from the object
+                # For now, assume the object is the class instance
+                # We'll look for ClassName_methodName in registry
+                function_name = None
+                for registered_name in self._function_registry.keys():
+                    if registered_name.endswith(f"_{method_name}"):
+                        function_name = registered_name
+                        break
+
+                if not function_name:
+                    function_name = method_name  # Fallback to simple name
+            else:
+                # For other complex expressions as callees, evaluate first
+                function_name = self.expression_generator.visit(node.callee)
+                if not function_name:
+                    raise TACGenerationError("Invalid function expression", node)
         else:
             # For complex expressions as callees, evaluate first
             function_name = self.expression_generator.visit(node.callee)
@@ -280,6 +327,11 @@ class FunctionTACGenerator(BaseTACVisitor):
         if function_name in self._function_registry:
             func_decl = self._function_registry[function_name]
             expected_params = len(func_decl.parameters)
+
+            # For method calls, add 1 for the implicit 'this' parameter
+            if is_method_call or '_' in function_name:  # Class methods have underscore in name
+                expected_params += 1
+
             has_return_value = (func_decl.return_type and
                               func_decl.return_type.base != "void")
         elif function_name in builtin_functions:
@@ -292,10 +344,16 @@ class FunctionTACGenerator(BaseTACVisitor):
                 f"Function '{function_name}' is not declared", node
             )
 
-        if len(node.arguments) != expected_params:
+        # For method calls, we need to account for the implicit 'this' parameter
+        actual_args = len(node.arguments)
+        if is_method_call:
+            # Method calls have an implicit 'this' parameter
+            actual_args += 1
+
+        if actual_args != expected_params:
             raise TACGenerationError(
                 f"Function {function_name} expects {expected_params} arguments, "
-                f"got {len(node.arguments)}", node
+                f"got {actual_args} (including 'this' for method calls)", node
             )
 
         # Evaluate arguments and push parameters (right to left)
@@ -310,21 +368,26 @@ class FunctionTACGenerator(BaseTACVisitor):
         for arg_temp in reversed(arg_temps):
             self.emit(PushParamInstruction(arg_temp))
 
+        # For method calls, push 'this' object as first (last pushed) parameter
+        if is_method_call and this_object:
+            self.emit(PushParamInstruction(this_object))
+
         # Check if this is a recursive call
         if self._current_function and function_name == self._current_function:
             self.emit(CommentInstruction(f"Recursive call to {function_name}"))
 
         # Generate function call
+        total_params = actual_args  # Use actual_args which includes 'this' for method calls
         result_temp = None
         if has_return_value:
             result_temp = self.new_temp()
-            self.emit(CallInstruction(function_name, len(node.arguments), result_temp))
+            self.emit(CallInstruction(function_name, total_params, result_temp))
         else:
-            self.emit(CallInstruction(function_name, len(node.arguments)))
+            self.emit(CallInstruction(function_name, total_params))
 
         # Clean up parameters from stack
-        if len(node.arguments) > 0:
-            self.emit(PopParamsInstruction(len(node.arguments)))
+        if total_params > 0:
+            self.emit(PopParamsInstruction(total_params))
 
         # Release argument temporaries
         for arg_temp in arg_temps:
@@ -350,7 +413,11 @@ class FunctionTACGenerator(BaseTACVisitor):
                 if isinstance(node.value, CallExpression):
                     return_temp = self.visit_CallExpression(node.value)
                 else:
+                    # Sync instructions with expression generator
+                    self.expression_generator.instructions = self.get_instructions()
                     return_temp = self.expression_generator.visit(node.value)
+                    # Sync back instructions
+                    self.instructions = self.expression_generator.get_instructions()
 
                 if not return_temp:
                     raise TACGenerationError("Failed to evaluate return expression", node.value)
@@ -393,15 +460,77 @@ class FunctionTACGenerator(BaseTACVisitor):
                     callee_name = stmt.callee.name
                     if callee_name == self._current_function:
                         self.emit(CommentInstruction(f"Recursive call to {callee_name}"))
+            elif isinstance(stmt, VariableDeclaration):
+                # Handle variable declarations with proper delegation
+                self.control_flow_generator.instructions = self.get_instructions()
+                result = self.control_flow_generator.visit_VariableDeclaration(stmt)
+                self.instructions = self.control_flow_generator.get_instructions()
             else:
-                # Delegate to expression or control flow generators
-                if hasattr(self.expression_generator, f'visit_{stmt.__class__.__name__}'):
-                    self.expression_generator.generate(stmt)
-                elif hasattr(self.control_flow_generator, f'visit_{stmt.__class__.__name__}'):
+                # Delegate to appropriate generators with state synchronization
+                stmt_type = stmt.__class__.__name__
+
+                # Control flow nodes
+                if stmt_type in ['IfStatement', 'WhileStatement', 'ForStatement',
+                               'DoWhileStatement', 'SwitchStatement', 'BreakStatement',
+                               'ContinueStatement', 'Block']:
+                    # Sync current instructions to control flow generator
+                    self.control_flow_generator.instructions = self.get_instructions()
                     self.control_flow_generator.generate(stmt)
+                    # Sync back instructions
+                    self.instructions = self.control_flow_generator.get_instructions()
+
+                # Expression nodes
+                elif stmt_type in ['BinaryOperation', 'UnaryOperation', 'AssignmentStatement',
+                                 'Identifier', 'Literal', 'PropertyAccess', 'IndexExpression',
+                                 'NewExpression', 'VariableDeclaration']:
+                    # Sync current instructions to expression generator
+                    self.expression_generator.instructions = self.get_instructions()
+                    self.expression_generator.generate(stmt)
+                    # Sync back instructions
+                    self.instructions = self.expression_generator.get_instructions()
+
                 else:
                     # Try generic visit
                     self.visit(stmt)
+
+    def _function_always_returns(self, body: Block) -> bool:
+        """Check if a function body always returns (all execution paths have returns)."""
+        if not body.statements:
+            return False
+
+        last_stmt = body.statements[-1]
+
+        # If last statement is return, check if it's reachable
+        if isinstance(last_stmt, ReturnStatement):
+            return True
+
+        # If last statement is if-else, both branches must return
+        from AST.ast_nodes import IfStatement
+        if isinstance(last_stmt, IfStatement):
+            if last_stmt.else_branch:
+                # Both branches must end with return
+                then_returns = self._statement_always_returns(last_stmt.then_branch)
+                else_returns = self._statement_always_returns(last_stmt.else_branch)
+                return then_returns and else_returns
+
+        return False
+
+    def _statement_always_returns(self, stmt) -> bool:
+        """Check if a statement always returns."""
+        from AST.ast_nodes import Block, ReturnStatement, IfStatement
+
+        if isinstance(stmt, ReturnStatement):
+            return True
+        elif isinstance(stmt, Block) and stmt.statements:
+            # Block returns if its last statement returns
+            return self._statement_always_returns(stmt.statements[-1])
+        elif isinstance(stmt, IfStatement) and stmt.else_branch:
+            # If-else returns if both branches return
+            then_returns = self._statement_always_returns(stmt.then_branch)
+            else_returns = self._statement_always_returns(stmt.else_branch)
+            return then_returns and else_returns
+        else:
+            return False
 
     def _get_default_value(self, type_name: str) -> str:
         """
@@ -491,3 +620,5 @@ class FunctionTACGenerator(BaseTACVisitor):
         # Also reset sub-generators
         self.expression_generator.reset()
         self.control_flow_generator.reset()
+        # Re-sync infrastructure after reset
+        self._sync_infrastructure()
