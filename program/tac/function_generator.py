@@ -160,8 +160,8 @@ class FunctionTACGenerator(BaseTACVisitor):
         constructor_found = False
         for member in node.members:
             if isinstance(member, FunctionDeclaration):
-                # Check if it's a constructor (named "constructor")
-                is_constructor = member.name == "constructor"
+                # Check if it's a constructor (named "constructor" or same as class name)
+                is_constructor = member.name == "constructor" or member.name == class_name
                 if is_constructor:
                     constructor_found = True
                     self._generate_constructor_tac(member, class_name)
@@ -191,7 +191,7 @@ class FunctionTACGenerator(BaseTACVisitor):
         self.enter_scope()
 
         # Emit constructor prologue
-        self.emit(CommentInstruction(f"Method: {class_name}.constructor"))
+        self.emit(CommentInstruction(f"Constructor: {class_name}"))
         self.emit(BeginFuncInstruction(constructor_name, len(param_names)))
 
         func_label = f"method_{class_name}_constructor"
