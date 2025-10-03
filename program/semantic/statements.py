@@ -52,7 +52,7 @@ class Statements:
         type_node = self.visit(tctx) if tctx else None
         if (hasattr(ctx, "typeAnnotation") and ctx.typeAnnotation()) or (hasattr(ctx, "type_") and ctx.type_()):
             if type_node is None:
-                raise SemanticError("BUG: type annotated but TypeNode not resolved")
+                self._raise_ctx(ctx, "BUG: type annotated but TypeNode not resolved")
 
         init_node = self.visit(ctx.initializer().expression()) if ctx.initializer() else None
 
@@ -65,7 +65,7 @@ class Statements:
 
         if init_node is not None:
             if not self._types_compatible_assign(type_node, init_node):
-                raise SemanticError(f"Assignment incompatible with '{name}'")
+                self._raise_ctx(ctx, f"Assignment incompatible with '{name}'")
 
         return VariableDeclaration(name, type_node, init_node, is_const=False)
 
@@ -82,11 +82,11 @@ class Statements:
         type_node = self.visit(tctx) if tctx else None
         if (hasattr(ctx, "typeAnnotation") and ctx.typeAnnotation()) or (hasattr(ctx, "type_") and ctx.type_()):
             if type_node is None:
-                raise SemanticError("BUG: type annotated but TypeNode not resolved")
+                self._raise_ctx(ctx, "BUG: type annotated but TypeNode not resolved")
 
         init_node = self.visit(ctx.expression())
         if init_node is None:
-            raise SemanticError(f"Constant '{name}' must be initialized")
+            self._raise_ctx(ctx, f"Constant '{name}' must be initialized")
 
         if type_node is None and init_node.type is not None:
             type_node = self._type_node_from_enum(init_node.type)
@@ -95,7 +95,7 @@ class Statements:
         self.state.current_scope.define(sym)
 
         if not self._types_compatible_assign(type_node, init_node):
-            raise SemanticError(f"Assignment incompatible with constant '{name}'")
+            self._raise_ctx(ctx, f"Assignment incompatible with constant '{name}'")
 
         return VariableDeclaration(name, type_node, init_node, is_const=True)
 
@@ -114,10 +114,10 @@ class Statements:
             name = ctx.Identifier().getText()
             sym  = self.state.current_scope.lookup(name)
             if sym.is_const:
-                raise SemanticError(f"Cannot assign to constant '{name}'")
+                self._raise_ctx(ctx, f"Cannot assign to constant '{name}'")
             value = self.visit(ctx.expression(0))
             if not self._types_compatible_assign(sym.type_node, value):
-                raise SemanticError(f"Assignment incompatible with '{name}'")
+                self._raise_ctx(ctx, f"Assignment incompatible with '{name}'")
             node = AssignmentStatement(target=Variable(name), value=value)
             node.type = value.type
             return node
@@ -134,11 +134,11 @@ class Statements:
             if self._is_class_typenode(obj_tn):
                 mem = self._lookup_member(obj_tn.base, prop)
                 if mem["kind"] != "field":
-                    raise SemanticError(f"Cannot assign to member '{prop}' (not a field)")
+                    self._raise_ctx(ctx, f"Cannot assign to member '{prop}' (not a field)")
                 field_tn = mem["type"]
                 if not self._types_compatible_assign(field_tn, value):
-                    raise SemanticError(f"Assignment incompatible with field '{prop}'")
-            else: 
+                    self._raise_ctx(ctx, f"Assignment incompatible with field '{prop}'")
+            else:
                 self._raise_ctx(ctx, "property assignment on non-class value")
 
             # if it's not a class, we let it pass (no type info)
@@ -146,7 +146,7 @@ class Statements:
             node.type = getattr(value, "type", None)
             return node
 
-        raise SemanticError("Invalid assignment")
+        self._raise_ctx(ctx, "Invalid assignment")
 
     def visitIfStatement(self, ctx: CompiscriptParser.IfStatementContext):
         cond_ctx = ctx.expression()
@@ -324,7 +324,7 @@ class Statements:
                 p_name = p.Identifier().getText()
                 p_type = self.visit(p.type_()) if p.type_() else None
                 if p_type is None:
-                    raise SemanticError(f"Parameter '{p_name}' must have a type")
+                    self._raise_ctx(p, f"Parameter '{p_name}' must have a type")
                 params_nodes.append(Parameter(p_name, p_type))
                 params_types.append(p_type)
 

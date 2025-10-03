@@ -13,7 +13,7 @@ class Classes:
                 p_name = p.Identifier().getText()
                 p_type = self.visit(p.type_()) if p.type_() else None
                 if p_type is None:
-                    raise SemanticError(f"Parameter '{p_name}' must have a type (method '{name}' in class '{class_name}')")
+                    self._raise_ctx(p, f"Parameter '{p_name}' must have a type (method '{name}' in class '{class_name}')")
                 params_nodes.append(Parameter(p_name, p_type))
                 params_types.append(p_type)
 
@@ -50,7 +50,7 @@ class Classes:
         # Create initial entry: copy members from super if it exists
         if superclass:
             if superclass not in self.classes:
-                raise SemanticError(f"Superclass '{superclass}' is not declared")
+                self._raise_ctx(ctx, f"Superclass '{superclass}' is not declared")
             base_fields  = dict(self.classes[superclass]["fields"])
             base_methods = dict(self.classes[superclass]["methods"])
         else:
@@ -75,18 +75,18 @@ class Classes:
                 node = self.visit(m.variableDeclaration())
                 # Register field
                 if node.declared_type is None:
-                    raise SemanticError(f"Field '{node.name}' in class '{name}' must have a type")
+                    self._raise_ctx(m, f"Field '{node.name}' in class '{name}' must have a type")
                 if node.name in self.classes[name]["fields"]:
-                    raise SemanticError(f"Field '{node.name}' in class '{name}' is duplicated")
+                    self._raise_ctx(m, f"Field '{node.name}' in class '{name}' is duplicated")
                 self.classes[name]["fields"][node.name] = node.declared_type
                 members.append(node)
 
             elif m.constantDeclaration():
                 node = self.visit(m.constantDeclaration())
                 if node.declared_type is None:
-                    raise SemanticError(f"Field '{node.name}' in class '{name}' must have a type")
+                    self._raise_ctx(m, f"Field '{node.name}' in class '{name}' must have a type")
                 if node.name in self.classes[name]["fields"]:
-                    raise SemanticError(f"Field '{node.name}' in class '{name}' is duplicated")
+                    self._raise_ctx(m, f"Field '{node.name}' in class '{name}' is duplicated")
                 self.classes[name]["fields"][node.name] = node.declared_type
                 members.append(node)
 
@@ -100,7 +100,7 @@ class Classes:
                 }
                 members.append(fn)
             else:
-                raise SemanticError("Unknown class member")
+                self._raise_ctx(m, "Unknown class member")
 
         self.current_scope = old_scope
         self.current_class = old_class
