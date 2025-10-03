@@ -42,6 +42,9 @@ class ExpressionTACGenerator(BaseTACVisitor):
 
     def visit_Literal(self, node: Literal) -> str:
         """Generate TAC for literal values (integers, floats, strings, booleans)."""
+        # Convert boolean literals to 1/0 for TAC (standard for MIPS translation)
+        if isinstance(node.value, bool):
+            return "1" if node.value else "0"
         return str(node.value)
 
     def visit_NullLiteral(self, node: NullLiteral) -> str:

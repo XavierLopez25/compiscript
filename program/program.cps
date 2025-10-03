@@ -5,6 +5,55 @@ let flag: boolean;
 let numbers: integer[] = [1, 2, 3, 4, 5];
 let matrix: integer[][] = [[1, 2], [3, 4]];
 
+flag = true;
+print("Flag is initially: true");
+
+if (flag) {
+  print("Flag is true - condition works!");
+  flag = false;
+} else {
+  print("Flag is false");
+}
+
+print("Flag after change: false");
+
+// Test 2: Boolean comparisons
+let isGreater: boolean = (5 > 3);
+let isEqual: boolean = (10 == 10);
+let isLess: boolean = (7 < 2);
+
+// Print solo los mensajes (los valores ya están implícitos en el mensaje)
+print("5 > 3 is: true");
+print("10 == 10 is: true");
+print("7 < 2 is: false");
+
+// Test 3: Boolean logic in control flow
+let canProceed: boolean = true;
+let hasPermission: boolean = false;
+
+if (canProceed) {
+  print("Proceeding...");
+  if (hasPermission) {
+    print("Access granted");
+  } else {
+    print("Access denied - no permission");
+  }
+}
+
+// Test 4: Boolean with while loop
+let keepRunning: boolean = true;
+let counter: integer = 0;
+
+while (keepRunning) {
+  counter = counter + 1;
+  print("Counter: " + counter);
+  if (counter >= 3) {
+    keepRunning = false;
+  }
+}
+
+print("Loop finished when keepRunning became false");
+
 // Simple closure-style function (no nested type signatures)
 function makeAdder(x: integer): integer {
   return x + 1;
