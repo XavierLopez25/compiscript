@@ -44,7 +44,7 @@ html, body {
   align-items: center;
   padding: 0;
   background-color: #292c3c; 
-  min-height: 40px;
+  min-height: 60px;
   z-index: 10;
 }
 
@@ -54,18 +54,18 @@ html, body {
   font-weight: 600;
   letter-spacing: 0.2px;
   user-select: none;
-  padding: 0 16px;
+  padding: 0 20px;
 }
 
 .run-button {
   background-color: transparent;
   border: 1px solid #cccccc;
   padding: 8px 12px;
-  margin: 6px;
+  margin: 0 20px;
   border-radius: 3px;
   cursor: pointer;
   width: 45px;
-  height: 30px;
+  height: 35px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -73,6 +73,9 @@ html, body {
 
 .run-button:hover {
   transform: translateY(-2px);
+  transition: all 0.2s ease-in-out;
+  background-color: #ccc;
+  color: #292c3c;
 }
 
 .main-content {
@@ -98,6 +101,7 @@ html, body {
   display: flex;
   flex-direction: column;
   position: relative;
+  width: fit-content;
 }
 
 .sidebar::before {
@@ -122,7 +126,6 @@ html, body {
 
 .sidebar-placeholder h3 {
   font-family: 'Yosert', sans-serif;
-  font-size: 20px;
   font-weight: 600;
   color: #cccccc;
   margin-bottom: 12px;

@@ -1,14 +1,13 @@
 import React, { useState, useRef, useMemo } from 'react'
 import { FaPlay } from "react-icons/fa6";
 import './styles.css'
+import toast, { Toaster } from 'react-hot-toast';
 
-// ===== Constantes de layout (sincronizadas con tu CSS) =====
-const LINE_HEIGHT = 22;      // .editor-wrapper .code-* { line-height: 22px }
-const PADDING_Y = 20;        // padding-top en .code-highlights / .code-editor
-const PADDING_X = 20;        // padding-left en .code-highlights / .code-editor
-const GUTTER_W  = 60;        // ancho de .line-numbers
-const TAB_SIZE  = 2;         // tab-size en CSS
-const COLUMN_IS_ONE_BASED = false; // tu backend parece 0-based (ej: columna 3 apunta a ':' en "let:")
+const LINE_HEIGHT = 22;      
+const PADDING_Y = 20;       
+const PADDING_X = 20;        
+const TAB_SIZE  = 2;         
+const COLUMN_IS_ONE_BASED = false; 
 
 // Expande tabs a espacios para medir visualmente como en el editor
 function expandTabsToSpaces(s, tabSize) {
@@ -32,6 +31,7 @@ function CompiscriptIU() {
   const [code, setCode] = useState('')
   const [diagnostics, setDiagnostics] = useState([]);
   const [isRunning, setIsRunning] = useState(false);
+  const [tacCode, setTacCode] = useState([]); 
 
   const editorRef = useRef(null)
   const highlightRef = useRef(null)
@@ -267,15 +267,33 @@ function CompiscriptIU() {
       const result = await analyzeCode(code, { returnAsDot: false, generateTac: true });
       setDiagnostics(result.diagnostics || []);
 
-      // Log TAC results for debugging
-      if (result.tac) {
-        console.log('TAC Generated:', result.tac);
+      if (result.ok) {
+        if (result.tac) {
+          setTacCode(result.tac.code);
+          console.log("Código TAC generado:", result.tac);
+          toast.success('¡Compilación exitosa! Código TAC generado.', {
+            duration: 3000,
+            position: 'top-right',
+          });
+        } 
+      } else {
+        setTacCode([]);
+        toast.error('Hubo problemas en la compilación', {
+          duration: 3000,
+          position: 'top-right',
+        });
       }
+
     } catch (e) {
       setDiagnostics([{
         kind: "client",
         message: "No se pudo conectar con el analizador.",
       }]);
+      setTacCode([]);
+      toast.error('No se pudo conectar con el analizador', {
+        duration: 3000,
+        position: 'top-right',
+      });
     } finally {
       setIsRunning(false);
     }
@@ -311,12 +329,25 @@ function CompiscriptIU() {
 
   return (
     <div className="ide-container">
+      <Toaster />
       <div className="main-content">
         <aside className="sidebar">
           <div className="sidebar-content">
             <div className="sidebar-placeholder">
-              <h3>Lineamientos del Proyecto</h3>
-              <p>Contenido del sidebar...</p>
+              <h3>Código TAC generado</h3>
+              {tacCode.length > 0 ? (
+                <pre style={{ 
+                  fontFamily: 'monospace', 
+                  fontSize: '15px', 
+                  lineHeight: '1.5',
+                  whiteSpace: 'pre',
+                  overflow: 'auto'
+                }}>
+                  {tacCode.filter(line => !line.trim().startsWith('#')).join('\n')}
+                </pre>
+              ) : (
+                <p>Ejecuta el código para ver el TAC generado...</p>
+              )}
             </div>
           </div>
         </aside>
