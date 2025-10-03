@@ -248,11 +248,15 @@ function CompiscriptIU() {
     }
   };
 
-  async function analyzeCode(code, { returnAsDot = false } = {}) {
+  async function analyzeCode(code, { returnAsDot = false, generateTac = true } = {}) {
     const res = await fetch('http://localhost:8000/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, return_ast_dot: returnAsDot }),
+      body: JSON.stringify({
+        code,
+        return_ast_dot: returnAsDot,
+        generate_tac: generateTac
+      }),
     });
     return res.json();
   }
@@ -260,8 +264,13 @@ function CompiscriptIU() {
   const handleRunCode = async () => {
     try {
       setIsRunning(true);
-      const result = await analyzeCode(code, { returnAsDot: false });
+      const result = await analyzeCode(code, { returnAsDot: false, generateTac: true });
       setDiagnostics(result.diagnostics || []);
+
+      // Log TAC results for debugging
+      if (result.tac) {
+        console.log('TAC Generated:', result.tac);
+      }
     } catch (e) {
       setDiagnostics([{
         kind: "client",

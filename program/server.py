@@ -10,6 +10,8 @@ from CompiscriptParser import CompiscriptParser
 from SemanticVisitor import SemanticVisitor
 from AST.symbol_table import SemanticError
 from AST.ast_to_dot import write_dot
+from tac.integrated_generator import IntegratedTACGenerator
+from tac.base_generator import TACGenerationError
 
 import tempfile
 
@@ -26,18 +28,27 @@ app.add_middleware(
 class AnalyzeRequest(BaseModel):
     code: str
     return_ast_dot: bool = False  # opcional: devolver DOT
+    generate_tac: bool = False    # opcional: generar TAC
 
 class Diagnostic(BaseModel):
-    kind: str               # "lexer" | "parser" | "semantic"
+    kind: str               # "lexer" | "parser" | "semantic" | "tac"
     message: str
     line: Optional[int] = None
     column: Optional[int] = None
     length: Optional[int] = None  # si disponible
 
+class TACInfo(BaseModel):
+    code: List[str]           # Lista de instrucciones TAC
+    instruction_count: int    # Número total de instrucciones
+    temporaries_used: int     # Número de temporales utilizados
+    functions_registered: int # Número de funciones registradas
+    validation_errors: List[str] = []  # Errores de validación TAC
+
 class AnalyzeResponse(BaseModel):
     ok: bool
     diagnostics: List[Diagnostic]
     ast_dot: Optional[str] = None
+    tac: Optional[TACInfo] = None
 
 class CollectingErrorListener(ErrorListenerA):
     def __init__(self):
@@ -82,6 +93,7 @@ def analyze(req: AnalyzeRequest):
     diagnostics.extend(parser_err.errors)
 
     ast_dot_str: Optional[str] = None
+    tac_info: Optional[TACInfo] = None
     ok = False
 
     if not diagnostics:
@@ -97,7 +109,42 @@ def analyze(req: AnalyzeRequest):
                     with open(tmp.name, "r", encoding="utf-8") as f:
                         ast_dot_str = f.read()
 
+            if req.generate_tac:
+                try:
+                    tac_generator = IntegratedTACGenerator()
+                    tac_lines = tac_generator.generate_program(ast)
+
+                    # Get statistics
+                    stats = tac_generator.get_complete_statistics()
+
+                    # Validate TAC
+                    validation_errors = tac_generator.validate_tac()
+
+                    # Extract temporaries count
+                    temporaries_used = 0
+                    if 'integrated_stats' in stats and 'temporaries_used' in stats['integrated_stats']:
+                        temporaries_used = stats['integrated_stats']['temporaries_used']
+                    else:
+                        # Fallback: count temporaries from instructions
+                        temporaries_used = sum(1 for line in tac_lines if 't' in line and '=' in line)
+
+                    # Get function count
+                    functions_registered = len(tac_generator.function_generator._function_registry)
+
+                    tac_info = TACInfo(
+                        code=tac_lines,
+                        instruction_count=len(tac_lines),
+                        temporaries_used=temporaries_used,
+                        functions_registered=functions_registered,
+                        validation_errors=validation_errors
+                    )
+
+                except TACGenerationError as e:
+                    diagnostics.append(Diagnostic(kind="tac", message=f"TAC generation error: {str(e)}"))
+                except Exception as e:
+                    diagnostics.append(Diagnostic(kind="tac", message=f"Unexpected TAC error: {str(e)}"))
+
         except SemanticError as e:
             diagnostics.append(Diagnostic(kind="semantic", message=str(e), line=e.line, column=e.column))
 
-    return AnalyzeResponse(ok=ok, diagnostics=diagnostics, ast_dot=ast_dot_str)
+    return AnalyzeResponse(ok=ok, diagnostics=diagnostics, ast_dot=ast_dot_str, tac=tac_info)
