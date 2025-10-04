@@ -22,6 +22,7 @@ The CompilScript compiler project aims to:
 - **Provide comprehensive error reporting** with precise location information and context-aware messages
 - **Support advanced language features** including classes, inheritance, closures, and type inference
 - **Generate intermediate representations** such as Abstract Syntax Trees (AST) and symbol table dumps
+- **Produce validated Three Address Code (TAC)** through an integrated generator with activation records, label/temporary recycling, and statistics reporting
 
 ### Key Features
 
@@ -30,6 +31,7 @@ The CompilScript compiler project aims to:
 - **Lexical Scoping**: Proper variable resolution with nested scope support
 - **Control Flow Analysis**: Comprehensive validation of loops, conditionals, and function returns
 - **Error Recovery**: Robust error handling with detailed diagnostic messages
+- **Intermediate Code Generation (NEW)**: End-to-end TAC pipeline covering expressions, control flow, functions, and class activation records
 
 ## Language Features
 
@@ -42,6 +44,11 @@ CompilScript supports the following programming constructs:
 - **Classes**: Object-oriented features with inheritance, constructors, and method dispatch
 - **Arrays**: Multi-dimensional arrays with type-safe element access
 - **Operators**: Arithmetic, logical, relational, and assignment operators with proper precedence
+
+### Recent Additions
+
+- **Compiler Output Artifacts**: Each successful compilation now emits `output.tac` alongside `ast.dot` and `scopes.json` for downstream backend experimentation.
+- **Runtime Metadata**: TAC statistics include temporary usage, function registration counts, and validation warnings to help tune programs.
 
 ## Architecture
 
@@ -67,6 +74,11 @@ compiscript/
 ```
 
 <img width="1300" height="836" alt="image" src="https://github.com/user-attachments/assets/900ccd55-7678-49e3-a392-0c514b7d4c75" />
+
+**New TAC Modules:**
+- `program/tac/` now houses the TAC instruction definitions, temporary/label/address managers, and visitors for expressions, control flow, and functions.
+- `program/tests/tac/` adds a dedicated unit and integration suite verifying every TAC component plus an end-to-end program demo.
+- `IDE-compiscript/` delivers a Vite/React playground so the TAC-enabled compiler can be exercised directly from a browser.
 
 ### Architectural Patterns
 
@@ -135,6 +147,11 @@ python3 Driver.py <source_file.cps>
 Semantic analysis completed successfully.
 AST -> ast.dot (use: dot -Tpng ast.dot -o ast.png)
 Scopes -> scopes.json
+\n--- TAC Generation ---
+✓ TAC generation completed successfully.
+✓ Generated <n> TAC instructions
+✓ TAC -> output.tac
+✓ TAC validation passed
 ```
 
 **Compilation errors:**
@@ -153,6 +170,10 @@ dot -Tpng ast.dot -o ast.png
 ### Scope Analysis
 
 The compiler generates `scopes.json` containing the complete symbol table hierarchy for debugging and analysis.
+
+### TAC Output (New)
+
+Successful runs also write `output.tac`, a fully validated Three Address Code listing with function prologues, parameter handling, control-flow labels, and recorded temporary usage statistics.
 
 ## Implementation Details
 
@@ -180,6 +201,8 @@ dump_scopes(sem.global_scope)       # Symbol table export
 **Outputs:**
 - `ast.dot`: Graphviz visualization of the Abstract Syntax Tree
 - `scopes.json`: Complete symbol table hierarchy with all declared symbols
+- `output.tac`: Three Address Code program with validation diagnostics and statistics (new)
+- Console report of TAC instruction count, validation warnings, and temporary usage metrics (new)
 
 #### `SemanticVisitor.py` - Composite Visitor
 Combines all semantic analysis modules using multiple inheritance:
@@ -194,6 +217,14 @@ class SemanticVisitor(Types, Statements, Expressions, Classes, Helpers, Compiscr
 - **Method Resolution Order (MRO)**: Left-to-right precedence for visitor methods
 - **State Proxies**: Unified access to semantic state across all modules
 - **Modular Responsibilities**: Each mixin handles specific language constructs
+
+#### `tac/` Package (New) - Intermediate Code Generation
+- **`instruction.py`**: TAC instruction classes for assignments, jumps, and function prologues/epilogues.
+- **`temp_manager.py`**: Scope-aware temporary allocation with recycling and usage reporting.
+- **`label_manager.py`**: Break/continue tracking, label resolution, and diagnostics for unresolved jumps.
+- **`address_manager.py`**: Activation record builder that assigns offsets for parameters, locals, and temporaries.
+- **`expression_generator.py` / `control_flow_generator.py` / `function_generator.py`**: Visitor passes that lower AST nodes to TAC.
+- **`integrated_generator.py`**: Coordinates all generators, validates the resulting TAC, and produces roll-up statistics.
 
 ### AST Infrastructure
 
@@ -359,7 +390,7 @@ Provides shared functionality across all semantic modules:
 
 ### Compilation Pipeline
 
-The CompilScript compiler follows a three-phase compilation process:
+The CompilScript compiler now follows a four-phase compilation process:
 
 #### Phase 1: Lexical and Syntactic Analysis
 ```
@@ -392,7 +423,22 @@ Parse Tree → SemanticVisitor → Abstract Syntax Tree (AST) + Symbol Tables
 - **Class Members**: Field/method access validated against class definitions
 - **Function Signatures**: Parameter count and types validated in all calls
 
-#### Phase 3: Output Generation
+#### Phase 3: TAC Generation (New)
+```
+AST → IntegratedTACGenerator → TAC Instructions + Validation Stats
+```
+
+**Generation Steps:**
+1. **Expression Lowering**: Arithmetic, logical, and object-oriented expressions become TAC assignments with temporary management.
+2. **Control Flow Translation**: Conditionals, loops, and switch statements emit structured labels and jumps.
+3. **Function & Class Handling**: Activation records, parameter passing, and method dispatch are encoded with prologue/epilogue instructions.
+4. **Validation**: Label resolution, temporary balance, and structural checks run before emitting the final program.
+
+**Artifacts:**
+- `output.tac`: Serialized TAC program saved to disk.
+- Console statistics: Instruction counts, temporary usage, registered functions/classes, and any validation warnings.
+
+#### Phase 4: Output Generation
 ```
 AST + Symbol Tables → ast.dot (Visualization) + scopes.json (Debug Info)
 ```
@@ -602,6 +648,7 @@ The project includes comprehensive test programs:
 - **`program_loop.cps`**: Loop constructs and control flow
 - **`program_break_continue_return.cps`**: Control flow statements validation
 - **`program_dot_constructors.cps`**: Object-oriented features and constructor testing
+- **`program/tests/tac/test_*.py`**: New TAC-specific unit and integration tests that validate temporary recycling, label management, function lowering, and full-program TAC output.
 
 ### Running Tests
 
@@ -609,4 +656,16 @@ Execute individual test programs:
 
 ```bash
 python3 Driver.py program/<test_file.cps>
+```
+
+Run the aggregated semantic regression harness:
+
+```bash
+python3 program/tests/run_tests.py
+```
+
+Execute the TAC unit and integration suite (new):
+
+```bash
+python3 program/tests/tac/run_tac_tests.py
 ```
