@@ -12,8 +12,10 @@ from AST.symbol_table import SemanticError
 from AST.ast_to_dot import write_dot
 from tac.integrated_generator import IntegratedTACGenerator
 from tac.base_generator import TACGenerationError
+from tac.symbol_annotator import SymbolAnnotator
 
 import tempfile
+import json
 
 app = FastAPI()
 
@@ -49,6 +51,7 @@ class AnalyzeResponse(BaseModel):
     diagnostics: List[Diagnostic]
     ast_dot: Optional[str] = None
     tac: Optional[TACInfo] = None
+    scopes: Optional[dict] = None  # Symbol table with memory annotations
 
 class CollectingErrorListener(ErrorListenerA):
     def __init__(self):
@@ -94,6 +97,7 @@ def analyze(req: AnalyzeRequest):
 
     ast_dot_str: Optional[str] = None
     tac_info: Optional[TACInfo] = None
+    scopes_dict: Optional[dict] = None
     ok = False
 
     if not diagnostics:
@@ -139,6 +143,14 @@ def analyze(req: AnalyzeRequest):
                         validation_errors=validation_errors
                     )
 
+                    # Annotate symbol table with memory information
+                    try:
+                        annotator = SymbolAnnotator(tac_generator.address_manager)
+                        annotator.annotate_scope_tree(sem.global_scope)
+                        scopes_dict = sem.global_scope.to_dict()
+                    except Exception as e:
+                        diagnostics.append(Diagnostic(kind="tac", message=f"Symbol annotation error: {str(e)}"))
+
                 except TACGenerationError as e:
                     diagnostics.append(Diagnostic(kind="tac", message=f"TAC generation error: {str(e)}"))
                 except Exception as e:
@@ -147,4 +159,4 @@ def analyze(req: AnalyzeRequest):
         except SemanticError as e:
             diagnostics.append(Diagnostic(kind="semantic", message=str(e), line=e.line, column=e.column))
 
-    return AnalyzeResponse(ok=ok, diagnostics=diagnostics, ast_dot=ast_dot_str, tac=tac_info)
+    return AnalyzeResponse(ok=ok, diagnostics=diagnostics, ast_dot=ast_dot_str, tac=tac_info, scopes=scopes_dict)

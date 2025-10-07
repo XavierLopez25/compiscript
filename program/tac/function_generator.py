@@ -111,6 +111,9 @@ class FunctionTACGenerator(BaseTACVisitor):
         func_label = self.new_label("func", function_name)
         self.emit(LabelInstruction(func_label))
 
+        # Register function with address manager for MIPS code generation
+        self.address_manager.register_function(function_name, func_label)
+
         # Allocate space for parameters and local variables
         for param in node.parameters:
             self.address_manager.allocate_local_var(param.name)

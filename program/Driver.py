@@ -9,6 +9,7 @@ import json
 from AST.ast_to_dot import write_dot
 from tac.integrated_generator import IntegratedTACGenerator
 from tac.base_generator import TACGenerationError
+from tac.symbol_annotator import SymbolAnnotator
 
 def main(argv):
     input_stream = FileStream(argv[1], encoding='utf-8')
@@ -25,11 +26,6 @@ def main(argv):
         # Generate AST visualization
         write_dot(ast, "ast.dot")
         print("✓ AST -> ast.dot (usa: dot -Tpng ast.dot -o ast.png)")
-
-        # Save symbol table
-        with open("scopes.json", "w") as f:
-            json.dump(sem.global_scope.to_dict(), f, indent=2)
-        print("✓ Scopes -> scopes.json")
 
         # Debug: Check AST structure
         print(f"\n--- AST Debug Info ---")
@@ -79,6 +75,17 @@ def main(argv):
                 # Count temporaries from instructions
                 temp_count = sum(1 for line in tac_lines if 't' in line and '=' in line)
                 print(f"  Temporaries used (approx): {temp_count}")
+
+            # Annotate symbol table with memory information
+            print("\n--- Annotating Symbol Table ---")
+            annotator = SymbolAnnotator(tac_generator.address_manager)
+            annotator.annotate_scope_tree(sem.global_scope)
+            print("✓ Symbol table annotated with memory info")
+
+            # Save annotated symbol table
+            with open("scopes.json", "w") as f:
+                json.dump(sem.global_scope.to_dict(), f, indent=2)
+            print("✓ Scopes -> scopes.json")
 
             # Optionally print TAC to console
             print("\n--- Generated TAC ---")

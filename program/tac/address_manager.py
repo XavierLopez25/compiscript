@@ -37,9 +37,19 @@ class AddressManager:
         self._current_offset = 0
         self._word_size = 4  # 4 bytes per word (typical for 32-bit systems)
 
+        # MIPS memory layout
+        self._data_segment_start = 0x10010000  # .data segment start
+        self._text_segment_start = 0x00400000  # .text segment start
+        self._current_data_address = self._data_segment_start
+        self._current_text_address = self._text_segment_start
+
+        # Function metadata
+        self._function_labels: Dict[str, str] = {}  # function_name -> tac_label
+        self._function_addresses: Dict[str, int] = {}  # function_name -> code_address
+
     def allocate_global_var(self, var_name: str, size: int = 4) -> MemoryLocation:
         """
-        Allocate memory for a global variable.
+        Allocate memory for a global variable with absolute address.
 
         Args:
             var_name: Name of the variable
@@ -51,13 +61,20 @@ class AddressManager:
         if var_name in self._global_vars:
             return self._global_vars[var_name]
 
+        # Calculate offset from data segment start
+        offset = self._current_data_address - self._data_segment_start
+
         location = MemoryLocation(
-            address=f"global_{var_name}",
-            offset=0,
+            address=hex(self._current_data_address),  # Absolute address
+            offset=offset,
             size=size,
             is_temporary=False
         )
         self._global_vars[var_name] = location
+
+        # Advance data address for next allocation
+        self._current_data_address += size
+
         return location
 
     def create_activation_record(self, function_name: str, parameters: List[str]) -> ActivationRecord:
@@ -276,6 +293,34 @@ class AddressManager:
             return self._activation_records[-1].total_size
         return 0
 
+    def register_function(self, function_name: str, tac_label: str) -> int:
+        """
+        Register a function with its TAC label and allocate code address.
+
+        Args:
+            function_name: Name of the function
+            tac_label: TAC label for function entry point
+
+        Returns:
+            int: Allocated code address
+        """
+        self._function_labels[function_name] = tac_label
+        code_address = self._current_text_address
+        self._function_addresses[function_name] = code_address
+
+        # Estimate function size (100 bytes default, can be adjusted)
+        self._current_text_address += 100
+
+        return code_address
+
+    def get_function_label(self, function_name: str) -> Optional[str]:
+        """Get TAC label for a function."""
+        return self._function_labels.get(function_name)
+
+    def get_function_address(self, function_name: str) -> Optional[int]:
+        """Get code address for a function."""
+        return self._function_addresses.get(function_name)
+
     def reset(self) -> None:
         """Reset the address manager to initial state."""
         self._global_vars.clear()
@@ -283,6 +328,10 @@ class AddressManager:
         self._completed_records.clear()
         self._label_counter = 0
         self._current_offset = 0
+        self._current_data_address = self._data_segment_start
+        self._current_text_address = self._text_segment_start
+        self._function_labels.clear()
+        self._function_addresses.clear()
 
     def get_statistics(self) -> Dict[str, int]:
         """
