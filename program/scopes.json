@@ -1,0 +1,160 @@
+{
+  "symbols": [
+    {
+      "name": "globalVar",
+      "kind": "var",
+      "const": false,
+      "type": "integer[0]",
+      "params": [],
+      "return": null,
+      "memory_offset": 0,
+      "memory_address": "0x10010000",
+      "tac_label": null,
+      "is_parameter": false,
+      "parameter_index": null,
+      "size_bytes": 4
+    },
+    {
+      "name": "outer",
+      "kind": "func",
+      "const": true,
+      "type": null,
+      "params": [],
+      "return": "integer[0]",
+      "memory_offset": null,
+      "memory_address": "0x400000",
+      "tac_label": "func_outer1",
+      "is_parameter": false,
+      "parameter_index": null,
+      "size_bytes": 4
+    },
+    {
+      "name": "outerResult",
+      "kind": "var",
+      "const": false,
+      "type": "integer[0]",
+      "params": [],
+      "return": null,
+      "memory_offset": 4,
+      "memory_address": "0x10010004",
+      "tac_label": null,
+      "is_parameter": false,
+      "parameter_index": null,
+      "size_bytes": 4
+    }
+  ],
+  "children": [
+    {
+      "symbols": [],
+      "children": [
+        {
+          "symbols": [
+            {
+              "name": "outerVar",
+              "kind": "var",
+              "const": false,
+              "type": "integer[0]",
+              "params": [],
+              "return": null,
+              "memory_offset": 8,
+              "memory_address": "0x10010008",
+              "tac_label": null,
+              "is_parameter": false,
+              "parameter_index": null,
+              "size_bytes": 4
+            }
+          ],
+          "children": [],
+          "scope_type": "global",
+          "function_name": null,
+          "stack_frame_size": 0,
+          "local_var_count": 0,
+          "temp_var_count": 0
+        }
+      ],
+      "scope_type": "global",
+      "function_name": null,
+      "stack_frame_size": 0,
+      "local_var_count": 0,
+      "temp_var_count": 0
+    },
+    {
+      "symbols": [
+        {
+          "name": "inner",
+          "kind": "func",
+          "const": true,
+          "type": null,
+          "params": [],
+          "return": "integer[0]",
+          "memory_offset": null,
+          "memory_address": "0x400064",
+          "tac_label": "func_inner_scope12",
+          "is_parameter": false,
+          "parameter_index": null,
+          "size_bytes": 4
+        },
+        {
+          "name": "result",
+          "kind": "var",
+          "const": false,
+          "type": "integer[0]",
+          "params": [],
+          "return": null,
+          "memory_offset": 12,
+          "memory_address": "0x1001000c",
+          "tac_label": null,
+          "is_parameter": false,
+          "parameter_index": null,
+          "size_bytes": 4
+        }
+      ],
+      "children": [
+        {
+          "symbols": [],
+          "children": [
+            {
+              "symbols": [
+                {
+                  "name": "innerVar",
+                  "kind": "var",
+                  "const": false,
+                  "type": "integer[0]",
+                  "params": [],
+                  "return": null,
+                  "memory_offset": 16,
+                  "memory_address": "0x10010010",
+                  "tac_label": null,
+                  "is_parameter": false,
+                  "parameter_index": null,
+                  "size_bytes": 4
+                }
+              ],
+              "children": [],
+              "scope_type": "global",
+              "function_name": null,
+              "stack_frame_size": 0,
+              "local_var_count": 0,
+              "temp_var_count": 0
+            }
+          ],
+          "scope_type": "global",
+          "function_name": null,
+          "stack_frame_size": 0,
+          "local_var_count": 0,
+          "temp_var_count": 0
+        }
+      ],
+      "scope_type": "global",
+      "function_name": null,
+      "stack_frame_size": 0,
+      "local_var_count": 0,
+      "temp_var_count": 0
+    }
+  ],
+  "scope_type": "global",
+  "function_name": null,
+  "stack_frame_size": 0,
+  "local_var_count": 0,
+  "temp_var_count": 0
+}

@@ -4,7 +4,23 @@ from AST.symbol_table import *
 
 class Classes:
     def _visitMethodDeclaration(self, ctx: CompiscriptParser.FunctionDeclarationContext, class_name: str):
+        # Check if Identifier exists (can be None if parser failed on keyword)
+        if ctx.Identifier() is None:
+            self._raise_ctx(
+                ctx,
+                f"Invalid method declaration in class '{class_name}': method name is missing or uses a reserved keyword"
+            )
+
         name = ctx.Identifier().getText()
+
+        # Validate against built-in functions (inherited from Statements)
+        if hasattr(self, 'BUILTIN_FUNCTIONS') and name in self.BUILTIN_FUNCTIONS:
+            self._raise_ctx(
+                ctx,
+                f"Cannot use built-in function name '{name}' as a method in class '{class_name}'. "
+                f"'{name}' is a reserved function provided by the runtime."
+            )
+
         ret_t = self.visit(ctx.type_()) if ctx.type_() else TypeNode(base="void", dimensions=0)
 
         params_nodes, params_types = [], []

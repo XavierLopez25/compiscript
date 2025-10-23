@@ -3,6 +3,14 @@ from AST.ast_nodes import *
 from AST.symbol_table import *
 
 class Statements:
+    # Built-in functions that cannot be redefined
+    # These are reserved functions provided by the runtime/compiler
+    BUILTIN_FUNCTIONS = {
+        'print',      # Print to console (used extensively in generated TAC)
+        'len',        # Get array length (used in TAC: len array)
+        'array',      # Array constructor (used in TAC: array[n])
+        'str_concat'  # String concatenation (used in TAC)
+    }
     # ---- Enter/Exit Blocks ({...}) ----
     def visitProgram(self, ctx: CompiscriptParser.ProgramContext):
         stmts = [ self.visit(s) for s in ctx.statement() ]
@@ -314,7 +322,23 @@ class Statements:
     # ---- Functions & classes ----
 
     def visitFunctionDeclaration(self, ctx: CompiscriptParser.FunctionDeclarationContext):
+        # Check if Identifier exists (can be None if parser failed on keyword)
+        if ctx.Identifier() is None:
+            self._raise_ctx(
+                ctx,
+                "Invalid function declaration: function name is missing or uses a reserved keyword"
+            )
+
         name = ctx.Identifier().getText()
+
+        # Validate against built-in functions
+        if name in self.BUILTIN_FUNCTIONS:
+            self._raise_ctx(
+                ctx,
+                f"Cannot redefine built-in function '{name}'. "
+                f"'{name}' is a reserved function provided by the runtime."
+            )
+
         # Register signature first (for recursion)
         ret_t = self.visit(ctx.type_()) if ctx.type_() else TypeNode(base="void", dimensions=0)
         params_nodes: List[Parameter] = []

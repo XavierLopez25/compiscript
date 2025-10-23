@@ -32,7 +32,12 @@ class SymbolAnnotator:
                 self._annotate_class(symbol)
 
     def _annotate_global_variable(self, symbol: Symbol) -> None:
-        """Annotate a global variable with memory location."""
+        """
+        Annotate a global variable with memory location.
+
+        Note: For arrays, 'size' is the pointer size (4 bytes), not the array data size.
+        Array data is allocated dynamically in the heap during runtime.
+        """
         # Calculate size based on type_node
         size = self._calculate_size_from_type_node(symbol.type_node)
 
@@ -44,11 +49,31 @@ class SymbolAnnotator:
         symbol.memory_offset = location.offset
         symbol.size_bytes = size
 
-    def _annotate_function(self, symbol: Symbol) -> None:
-        """Annotate a function with code address and label."""
-        # Get function label and address from address manager
+    def _annotate_function(self, symbol: Symbol, scope_suffix: str = None) -> None:
+        """
+        Annotate a function with code address and label.
+
+        Args:
+            symbol: Function symbol to annotate
+            scope_suffix: Optional scope suffix for nested functions (e.g., "_scope1")
+        """
+        # Try to get function label and address from address manager
+        # First try with original name
         tac_label = self.address_manager.get_function_label(symbol.name)
         code_address = self.address_manager.get_function_address(symbol.name)
+
+        # If not found, search for scoped variants (e.g., "inner_scope1", "inner_scope2", etc.)
+        if not tac_label:
+            # Get all registered function names
+            all_functions = self.address_manager._function_labels.keys()
+
+            # Look for functions that start with the symbol name followed by "_scope"
+            for func_name in all_functions:
+                if func_name.startswith(f"{symbol.name}_scope"):
+                    tac_label = self.address_manager.get_function_label(func_name)
+                    code_address = self.address_manager.get_function_address(func_name)
+                    if tac_label:
+                        break
 
         if tac_label:
             symbol.tac_label = tac_label
@@ -131,7 +156,32 @@ class SymbolAnnotator:
                 # Local variable in nested scope
                 size = self._calculate_size_from_type_node(symbol.type_node)
                 symbol.size_bytes = size
-                # Offset would be calculated during function generation
+
+                # Assign memory based on context
+                if parent_function:
+                    # Variable in function scope: use stack-relative addressing
+                    # Note: In TAC, these are renamed with _scopeN suffix
+                    # We assign relative offsets for documentation purposes
+                    location = self.address_manager.allocate_local_var(
+                        f"{symbol.name}_scope{id(scope)}",
+                        size
+                    )
+                    symbol.memory_offset = location.offset
+                    symbol.memory_address = location.address
+                else:
+                    # Variable in global nested scope (e.g., global block {...})
+                    # Allocate in global data segment
+                    location = self.address_manager.allocate_global_var(
+                        f"{symbol.name}_scope{id(scope)}",
+                        size
+                    )
+                    symbol.memory_offset = location.offset
+                    symbol.memory_address = location.address
+
+            elif symbol.kind == 'func':
+                # Nested function declaration
+                # The function will search for scoped variants automatically
+                self._annotate_function(symbol)
 
         # Recursively annotate children
         for child_scope in scope.children:
@@ -141,11 +191,21 @@ class SymbolAnnotator:
         """
         Calculate size in bytes from a TypeNode object.
 
+        IMPORTANT - Array Memory Model:
+        - For arrays (dimensions > 0), this returns POINTER SIZE (4 bytes)
+        - Actual array data is heap-allocated using 'array[n]' TAC instruction
+        - Variables store REFERENCES to heap-allocated arrays, not the arrays themselves
+        - Example:
+            let arr: integer[] = [1, 2, 3];
+            -> Symbol.size_bytes = 4 (pointer size)
+            -> TAC: t1 = array[3]; arr = t1
+            -> Heap: actual 12 bytes allocated (3 * 4 bytes)
+
         Args:
             type_node: TypeNode object or None
 
         Returns:
-            int: Size in bytes
+            int: Size in bytes (4 for pointers/primitives)
         """
         if type_node is None:
             return 4  # Default size
@@ -155,8 +215,9 @@ class SymbolAnnotator:
         dimensions = type_node.dimensions if hasattr(type_node, 'dimensions') else 0
 
         # For arrays, return pointer size (4 bytes)
+        # The array data itself lives in the heap
         if dimensions > 0:
-            return 4
+            return 4  # Pointer to heap-allocated array
 
         # Base types
         type_map = {
