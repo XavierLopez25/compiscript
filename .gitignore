@@ -8,3 +8,4 @@ ast.png
 /venv
 program/tac/__pycache__/
 program/tests/tac/__pycache__/
+program/mips/__pycache__/
