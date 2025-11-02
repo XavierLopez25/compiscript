@@ -16,6 +16,7 @@ from .address_descriptor import AddressDescriptor, VariableLocation
 from .register_descriptor import RegisterDescriptor
 from .register_allocator import RegisterAllocator, RegisterAllocationError
 from .translator_base import MIPSTranslatorBase
+from .expression_translator import ExpressionTranslator
 
 __all__ = [
     "MIPSInstruction",
@@ -28,4 +29,5 @@ __all__ = [
     "RegisterAllocator",
     "RegisterAllocationError",
     "MIPSTranslatorBase",
+    "ExpressionTranslator",
 ]
