@@ -17,6 +17,9 @@ from .register_descriptor import RegisterDescriptor
 from .register_allocator import RegisterAllocator, RegisterAllocationError
 from .translator_base import MIPSTranslatorBase
 from .expression_translator import ExpressionTranslator
+from .control_flow_translator import ControlFlowTranslator
+from .label_manager import LabelManager, LabelResolutionError
+from .loop_translator import LoopPatternDetector, LoopOptimizer, LoopInfo
 
 __all__ = [
     "MIPSInstruction",
@@ -30,4 +33,10 @@ __all__ = [
     "RegisterAllocationError",
     "MIPSTranslatorBase",
     "ExpressionTranslator",
+    "ControlFlowTranslator",
+    "LabelManager",
+    "LabelResolutionError",
+    "LoopPatternDetector",
+    "LoopOptimizer",
+    "LoopInfo",
 ]
