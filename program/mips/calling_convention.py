@@ -183,6 +183,13 @@ class CallingConvention:
                         "li", (target_reg, param_value), comment=f"param {param_location.index}"
                     )
                 )
+            elif param_value.startswith("_str") or param_value.startswith("_array"):
+                # It's a label (string or array) - use load address
+                instructions.append(
+                    MIPSInstruction(
+                        "la", (target_reg, param_value), comment=f"load address param {param_location.index}"
+                    )
+                )
             else:
                 # It's a variable - need to load from memory
                 instructions.append(
@@ -199,6 +206,10 @@ class CallingConvention:
             elif param_value.isdigit() or (param_value.startswith("-") and param_value[1:].isdigit()):
                 # Constant
                 instructions.append(MIPSInstruction("li", (temp_reg, param_value)))
+                reg_to_push = temp_reg
+            elif param_value.startswith("_str") or param_value.startswith("_array"):
+                # Label (string or array) - use load address
+                instructions.append(MIPSInstruction("la", (temp_reg, param_value)))
                 reg_to_push = temp_reg
             else:
                 # Variable

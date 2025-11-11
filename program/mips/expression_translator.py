@@ -163,13 +163,15 @@ class ExpressionTranslator:
             # Use immediate value directly
             src2_operand = operand2
             instructions = self._generate_binary_instructions(
-                operator, dest_reg, src1_reg, src2_operand, is_immediate=True
+                operator, dest_reg, src1_reg, src2_operand,
+                operand1_orig=operand1, operand2_orig=operand2, is_immediate=True
             )
         else:
             # Load operand2 into register
             src2_reg = self._load_operand(operand2, forbidden=[dest_reg, src1_reg])
             instructions = self._generate_binary_instructions(
-                operator, dest_reg, src1_reg, src2_reg, is_immediate=False
+                operator, dest_reg, src1_reg, src2_reg,
+                operand1_orig=operand1, operand2_orig=operand2, is_immediate=False
             )
 
         # Emit generated instructions
@@ -181,6 +183,8 @@ class ExpressionTranslator:
         dest_reg: str,
         src1_reg: str,
         src2_operand: str,
+        operand1_orig: str = "",
+        operand2_orig: str = "",
         is_immediate: bool = False,
     ) -> List[MIPSInstruction]:
         """
@@ -248,11 +252,49 @@ class ExpressionTranslator:
 
         # String operations
         elif operator == "str_concat":
-            # For string concatenation, we'd need runtime support
-            # For now, emit a placeholder comment and warning
-            return [
-                MIPSInstruction("nop", (), comment=f"TODO: str_concat {src1_reg}, {src2_operand} -> {dest_reg}")
-            ]
+            # String concatenation using runtime function
+            # Automatically converts integers to strings if needed
+            # $a0 = first string, $a1 = second string
+            # Result in $v0
+            instructions = []
+
+            # Save $ra since we might call int_to_string
+            instructions.append(MIPSInstruction("addi", ("$sp", "$sp", "-4"), comment="save space for $ra"))
+            instructions.append(MIPSInstruction("sw", ("$ra", "0($sp)"), comment="save $ra"))
+
+            # Handle first operand - check ORIGINAL operand name to see if it's a string label
+            if operand1_orig and operand1_orig.startswith("_str"):
+                # It's a string label in the TAC, load address directly
+                instructions.append(MIPSInstruction("la", ("$s0", operand1_orig), comment="load str1 label"))
+            else:
+                # It's a variable or temp in a register - might be int, convert to be safe
+                instructions.append(MIPSInstruction("move", ("$a0", src1_reg), comment="load value to convert"))
+                instructions.append(MIPSInstruction("jal", ("int_to_string",), comment="convert to string"))
+                instructions.append(MIPSInstruction("move", ("$s0", "$v0"), comment="save str1"))
+
+            # Handle second operand - check ORIGINAL operand name
+            if operand2_orig and operand2_orig.startswith("_str"):
+                # It's a string label in the TAC, load address directly
+                instructions.append(MIPSInstruction("la", ("$s1", operand2_orig), comment="load str2 label"))
+            else:
+                # It's a variable/temp/register - might be int, convert to be safe
+                instructions.append(MIPSInstruction("move", ("$a0", src2_operand), comment="load value to convert"))
+                instructions.append(MIPSInstruction("jal", ("int_to_string",), comment="convert to string"))
+                instructions.append(MIPSInstruction("move", ("$s1", "$v0"), comment="save str2"))
+
+            # Now call string_concat with both strings
+            instructions.append(MIPSInstruction("move", ("$a0", "$s0"), comment="str1 to $a0"))
+            instructions.append(MIPSInstruction("move", ("$a1", "$s1"), comment="str2 to $a1"))
+            instructions.append(MIPSInstruction("jal", ("string_concat",), comment="call string concat"))
+
+            # Move result to destination
+            instructions.append(MIPSInstruction("move", (dest_reg, "$v0"), comment="get result"))
+
+            # Restore $ra
+            instructions.append(MIPSInstruction("lw", ("$ra", "0($sp)"), comment="restore $ra"))
+            instructions.append(MIPSInstruction("addi", ("$sp", "$sp", "4"), comment="deallocate space"))
+
+            return instructions
 
         # Type conversion operations
         elif operator == "int_to_float":
@@ -354,6 +396,15 @@ class ExpressionTranslator:
                     comment=f"{target} = {source}",
                 )
             )
+        elif source.startswith("_str") or source.startswith("_array"):
+            # Load address of string/array label
+            self.base.emit_text(
+                MIPSInstruction(
+                    "la",
+                    (dest_reg, source),
+                    comment=f"{target} = {source}",
+                )
+            )
         else:
             # Load from variable
             src_reg = self._load_operand(source, forbidden=[dest_reg])
@@ -398,6 +449,24 @@ class ExpressionTranslator:
                     "li",
                     (temp_reg, operand),
                     comment=f"load constant {operand}",
+                )
+            )
+            return temp_reg
+        elif operand.startswith("_str") or operand.startswith("_array"):
+            # Load address of string/array label
+            temp_var = f"_label_{operand}"
+            temp_reg, spills, loads = self.base.acquire_register(
+                temp_var,
+                is_write=True,
+                forbidden_registers=forbidden,
+            )
+            self.base.materialise_spills(spills)
+
+            self.base.emit_text(
+                MIPSInstruction(
+                    "la",
+                    (temp_reg, operand),
+                    comment=f"load address {operand}",
                 )
             )
             return temp_reg

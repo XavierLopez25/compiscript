@@ -40,6 +40,8 @@ from .control_flow_translator import ControlFlowTranslator
 from .class_translator import ClassTranslator
 from .peephole_optimizer import PeepholeOptimizer, OptimizationStats
 from .instruction import MIPSInstruction, MIPSLabel, MIPSComment, MIPSDirective
+from .data_section_manager import DataSectionManager
+from .runtime_library import RuntimeLibrary
 
 
 class IntegratedMIPSGenerator:
@@ -61,6 +63,9 @@ class IntegratedMIPSGenerator:
             enable_optimization: Whether to apply peephole optimizations
         """
         self.enable_optimization = enable_optimization
+
+        # Create data section manager
+        self.data_manager = DataSectionManager()
 
         # Create function translator (base translator)
         self.function_translator = FunctionTranslator()
@@ -106,14 +111,20 @@ class IntegratedMIPSGenerator:
         Returns:
             Complete MIPS assembly code as string
         """
+        # Pre-process: extract string literals from TAC
+        self._extract_string_literals(tac_instructions)
+
         # Generate header
         self._generate_header()
 
-        # Generate data section
+        # Generate data section with strings and runtime support
         self._generate_data_section()
 
         # Generate text section
         self._generate_text_section(tac_instructions)
+
+        # Add runtime library functions
+        self._generate_runtime_functions()
 
         # Get all generated MIPS nodes
         all_nodes = (
@@ -225,8 +236,13 @@ class IntegratedMIPSGenerator:
 
         # Assignment: x = y op z, x = op y, x = y
         elif '=' in line:
+            # Try binary with str_concat (needs special handling for string literals)
+            match = re.match(r'(\w+)\s*=\s*(.+?)\s+(str_concat)\s+(.+)', line)
+            if match:
+                return AssignInstruction(match.group(1), match.group(2).strip(), match.group(3), match.group(4).strip())
+
             # Try binary: x = y op z
-            match = re.match(r'(\w+)\s*=\s*(\S+)\s+(\+|-|\*|/|%|==|!=|<|>|<=|>=|&&|\|\||str_concat)\s+(\S+)', line)
+            match = re.match(r'(\w+)\s*=\s*(\S+)\s+(\+|-|\*|/|%|==|!=|<|>|<=|>=|&&|\|\|)\s+(\S+)', line)
             if match:
                 return AssignInstruction(match.group(1), match.group(2), match.group(3), match.group(4))
 
@@ -250,11 +266,34 @@ class IntegratedMIPSGenerator:
         self.function_translator.emit_comment("=" * 60)
         self.function_translator.emit_comment("")
 
+    def _extract_string_literals(self, tac_instructions: List):
+        """
+        Pre-process TAC instructions to extract string literals.
+        Adds them to data_manager and replaces in-place references.
+        """
+        for instr in tac_instructions:
+            if isinstance(instr, PushParamInstruction):
+                # Check if parameter is a string literal
+                if self.data_manager.is_string_literal(instr.param):
+                    # Add to data section and get label
+                    label = self.data_manager.add_string_literal(instr.param)
+                    # Replace with label reference
+                    instr.param = label
+            elif isinstance(instr, AssignInstruction):
+                # Check for string operands in assignments
+                if instr.operand1 and self.data_manager.is_string_literal(instr.operand1):
+                    label = self.data_manager.add_string_literal(instr.operand1)
+                    instr.operand1 = label
+                if instr.operand2 and self.data_manager.is_string_literal(instr.operand2):
+                    label = self.data_manager.add_string_literal(instr.operand2)
+                    instr.operand2 = label
+
     def _generate_data_section(self):
-        """Generate .data section with global variables."""
-        self.function_translator.emit_data(MIPSDirective(".data", ()))
-        # Global variables would be declared here
-        # For now, we'll handle them dynamically as needed
+        """Generate .data section with string literals and arrays."""
+        # Generate data section from data_manager
+        data_nodes = self.data_manager.generate_data_section()
+        for node in data_nodes:
+            self.function_translator.data_section.append(node)
 
     def _generate_text_section(self, tac_instructions: List):
         """Generate .text section with code."""
@@ -262,20 +301,47 @@ class IntegratedMIPSGenerator:
         self.function_translator.emit_text(MIPSDirective(".globl", ("main",)))
         self.function_translator.emit_text(MIPSComment(""))
 
-        # Translate each TAC instruction
+        # Separate global code from function definitions
+        global_code = []
+        function_code = []
+        in_function = False
+
         for instr in tac_instructions:
+            if isinstance(instr, BeginFuncInstruction):
+                in_function = True
+                function_code.append(instr)
+            elif isinstance(instr, EndFuncInstruction):
+                in_function = True  # Stay in function mode
+                function_code.append(instr)
+            elif in_function:
+                function_code.append(instr)
+            else:
+                global_code.append(instr)
+
+        # Emit main label first
+        self.function_translator.emit_label("main")
+        self.function_translator.emit_comment("Main program")
+
+        # Translate global code (inside main)
+        for instr in global_code:
             self._translate_instruction(instr)
 
-        # Add program exit if we have a main-like structure
-        if not any(isinstance(node, MIPSLabel) and node.name == "main"
-                   for node in self.function_translator.text_section):
-            # Create a main label
-            self.function_translator.emit_label("main")
-
-        # Add exit syscall at the end
+        # Add exit syscall
         self.function_translator.emit_comment("Program exit")
         self.function_translator.emit_text(MIPSInstruction("li", ("$v0", "10"), comment="exit"))
         self.function_translator.emit_text(MIPSInstruction("syscall", ()))
+
+        # Now translate function definitions
+        self.function_translator.emit_comment("")
+        self.function_translator.emit_comment("User-defined functions")
+        for instr in function_code:
+            self._translate_instruction(instr)
+
+    def _generate_runtime_functions(self):
+        """Generate runtime library functions."""
+        runtime_nodes = RuntimeLibrary.generate_all_runtime_functions()
+        for node in runtime_nodes:
+            self.function_translator.text_section.append(node)
 
     def _translate_instruction(self, instr):
         """Translate a single TAC instruction to MIPS."""

@@ -190,8 +190,10 @@ class FunctionTranslator(MIPSTranslatorBase):
         # Generate parameter passing code
         for param in self.pending_params:
             location = context.param_locations[param.index]
+            # Get the actual value/register for the parameter
+            param_source = self._get_param_source(param.value)
             instructions = CallingConvention.generate_push_param(
-                param.value, location, temp_reg="$t0"
+                param_source, location, temp_reg="$t0"
             )
             self.emit_text_many(instructions)
 
@@ -340,6 +342,43 @@ class FunctionTranslator(MIPSTranslatorBase):
     def is_function_defined(self, func_name: str) -> bool:
         """Check if a function has been defined."""
         return func_name in self.defined_functions
+
+    def _get_param_source(self, param_value: str) -> str:
+        """
+        Get the source for a parameter value (register or label).
+
+        If the param is a variable in a register, get that register.
+        If it's a label (_str, _array), return as-is.
+        If it's a constant, return as-is.
+
+        Args:
+            param_value: Parameter value from TAC
+
+        Returns:
+            Register name, label, or constant value
+        """
+        # Check if it's already a register
+        if param_value.startswith("$"):
+            return param_value
+
+        # Check if it's a label (string/array)
+        if param_value.startswith("_str") or param_value.startswith("_array"):
+            return param_value
+
+        # Check if it's a constant
+        if param_value.isdigit() or (param_value.startswith("-") and param_value[1:].isdigit()):
+            return param_value
+
+        # It's a variable - try to get its register using the allocator
+        try:
+            reg, spills, loads = self.acquire_register(param_value, is_write=False)
+            # Materialize loads if needed
+            self.materialise_spills(spills)
+            self.materialise_loads(loads)
+            return reg
+        except:
+            # Fallback: return variable name (will use lw)
+            return param_value
 
 
 # Convenience function for standalone usage
