@@ -246,6 +246,35 @@ class ExpressionTranslator:
         elif operator == "^":
             return translate_logical_xor(dest_reg, src1_reg, src2_operand)
 
+        # String operations
+        elif operator == "str_concat":
+            # For string concatenation, we'd need runtime support
+            # For now, emit a placeholder comment and warning
+            return [
+                MIPSInstruction("nop", (), comment=f"TODO: str_concat {src1_reg}, {src2_operand} -> {dest_reg}")
+            ]
+
+        # Type conversion operations
+        elif operator == "int_to_float":
+            # MIPS conversion: mtc1, cvt.s.w
+            return [
+                MIPSInstruction("mtc1", (src1_reg, "$f0"), comment="move int to FPU"),
+                MIPSInstruction("cvt.s.w", ("$f0", "$f0"), comment="convert to float"),
+                MIPSInstruction("mfc1", (dest_reg, "$f0"), comment="move back to int reg"),
+            ]
+        elif operator == "float_to_int":
+            # MIPS conversion: mtc1, cvt.w.s, mfc1
+            return [
+                MIPSInstruction("mtc1", (src1_reg, "$f0"), comment="move to FPU"),
+                MIPSInstruction("cvt.w.s", ("$f0", "$f0"), comment="convert to int"),
+                MIPSInstruction("mfc1", (dest_reg, "$f0"), comment="move back to int reg"),
+            ]
+        elif operator == "to_string":
+            # String conversion requires runtime support
+            return [
+                MIPSInstruction("nop", (), comment=f"TODO: to_string {src1_reg} -> {dest_reg}")
+            ]
+
         else:
             raise ValueError(f"Unsupported binary operator: {operator}")
 
@@ -277,6 +306,22 @@ class ExpressionTranslator:
             instructions = translate_negate(dest_reg, src_reg)
         elif operator == "!":
             instructions = translate_logical_not(dest_reg, src_reg)
+        elif operator == "int_to_float":
+            instructions = [
+                MIPSInstruction("mtc1", (src_reg, "$f0"), comment="move int to FPU"),
+                MIPSInstruction("cvt.s.w", ("$f0", "$f0"), comment="convert to float"),
+                MIPSInstruction("mfc1", (dest_reg, "$f0"), comment="move back to int reg"),
+            ]
+        elif operator == "float_to_int":
+            instructions = [
+                MIPSInstruction("mtc1", (src_reg, "$f0"), comment="move to FPU"),
+                MIPSInstruction("cvt.w.s", ("$f0", "$f0"), comment="convert to int"),
+                MIPSInstruction("mfc1", (dest_reg, "$f0"), comment="move back to int reg"),
+            ]
+        elif operator == "to_string":
+            instructions = [
+                MIPSInstruction("nop", (), comment=f"TODO: to_string {src_reg} -> {dest_reg}")
+            ]
         else:
             raise ValueError(f"Unsupported unary operator: {operator}")
 

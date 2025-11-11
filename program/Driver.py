@@ -89,8 +89,57 @@ def main(argv):
 
             # Optionally print TAC to console
             print("\n--- Generated TAC ---")
-            for line in tac_lines:
+            for line in tac_lines[:20]:  # Print first 20 lines
                 print(line)
+            if len(tac_lines) > 20:
+                print(f"... ({len(tac_lines) - 20} more lines)")
+
+            # Generate MIPS code
+            print("\n--- MIPS Generation ---")
+            try:
+                from mips.integrated_mips_generator import IntegratedMIPSGenerator
+
+                mips_generator = IntegratedMIPSGenerator(enable_optimization=True)
+                mips_code = mips_generator.generate_from_tac_file("output.tac")
+
+                # Save MIPS to file
+                with open("output.s", "w") as f:
+                    f.write(mips_code)
+
+                print("✓ MIPS generation completed successfully.")
+                print("✓ MIPS -> output.s")
+
+                # Print MIPS statistics
+                mips_stats = mips_generator.get_statistics()
+                if "optimizations" in mips_stats:
+                    opt_stats = mips_stats["optimizations"]
+                    print("\n--- MIPS Optimization Statistics ---")
+                    print(f"  Total optimizations: {opt_stats['total']}")
+                    if opt_stats['total'] > 0:
+                        print(f"  - Redundant loads removed: {opt_stats['redundant_loads_removed']}")
+                        print(f"  - Dead stores removed: {opt_stats['dead_stores_removed']}")
+                        print(f"  - Algebraic simplifications: {opt_stats['algebraic_simplifications']}")
+                        print(f"  - Strength reductions: {opt_stats['strength_reductions']}")
+                        print(f"  - Constants folded: {opt_stats['constants_folded']}")
+                        print(f"  - Jumps optimized: {opt_stats['jumps_optimized']}")
+                        print(f"  - Unreachable code removed: {opt_stats['unreachable_removed']}")
+                        print(f"  - Redundant moves removed: {opt_stats['redundant_moves_removed']}")
+                        print(f"  Optimization passes: {opt_stats['passes_executed']}")
+
+                # Print first lines of MIPS
+                print("\n--- Generated MIPS (first 30 lines) ---")
+                mips_lines = mips_code.split('\n')
+                for line in mips_lines[:30]:
+                    print(line)
+                if len(mips_lines) > 30:
+                    print(f"... ({len(mips_lines) - 30} more lines)")
+
+            except ImportError as e:
+                print(f"⚠ MIPS generation not available: {e}")
+            except Exception as e:
+                print(f"✗ MIPS generation error: {e}")
+                import traceback
+                traceback.print_exc()
 
         except TACGenerationError as e:
             print(f"✗ TAC generation error: {e}")
