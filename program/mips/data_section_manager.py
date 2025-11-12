@@ -72,23 +72,28 @@ class DataSectionManager:
         If the string already exists, returns its existing label.
 
         Args:
-            value: The string value
+            value: The string value (may include quotes from TAC)
 
         Returns:
             Label name (e.g., "_str0", "_str1")
         """
+        # Strip quotes if present (from TAC generator)
+        clean_value = value
+        if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
+            clean_value = value[1:-1]
+
         # Check if we already have this string
-        if value in self.string_literals:
-            return self.string_literals[value].label
+        if clean_value in self.string_literals:
+            return self.string_literals[clean_value].label
 
         # Generate new label
         label = f"_str{self.string_counter}"
         self.string_counter += 1
 
-        # Create literal
-        literal = StringLiteral(label, value)
-        self.string_literals[value] = literal
-        self.string_labels[label] = value
+        # Create literal with cleaned value
+        literal = StringLiteral(label, clean_value)
+        self.string_literals[clean_value] = literal
+        self.string_labels[label] = clean_value
 
         return label
 
@@ -151,9 +156,15 @@ class DataSectionManager:
 
         # Add space for string concatenation buffer (1KB)
         nodes.append(MIPSComment(""))
-        nodes.append(MIPSComment("Buffer for string operations"))
+        nodes.append(MIPSComment("Buffer for string concatenation"))
         nodes.append(MIPSLabel("_str_buffer"))
         nodes.append(MIPSDirective(".space", ("1024",)))
+
+        # Add separate buffer for int_to_string (256 bytes - enough for any integer)
+        nodes.append(MIPSComment(""))
+        nodes.append(MIPSComment("Buffer for int to string conversion"))
+        nodes.append(MIPSLabel("_int_buffer"))
+        nodes.append(MIPSDirective(".space", ("256",)))
 
         return nodes
 
@@ -166,6 +177,10 @@ class DataSectionManager:
         # Already a label
         if value.startswith("_str"):
             return False
+
+        # Check if it's quoted (from TAC generator)
+        if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
+            return True
 
         # Check if it's a simple variable name (alphanumeric + underscore)
         if value.replace("_", "").isalnum():
