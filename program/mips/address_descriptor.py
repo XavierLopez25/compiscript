@@ -104,6 +104,25 @@ class AddressDescriptor:
         entry.spill_slot = offset
         return offset
 
+    def force_spill_slot(self, name: str, offset: int) -> None:
+        """
+        Force a variable to use a specific stack offset.
+        Used for function parameters that must be at known locations.
+
+        Args:
+            name: Variable name
+            offset: Stack offset from $sp
+        """
+        self._spill_offsets[name] = offset
+        entry = self.get(name)
+        entry.spill_slot = offset
+        # Clear any register associations - variable is only in memory
+        entry.registers.clear()
+        # Mark as clean since value is in memory
+        entry.dirty = False
+        # Bind memory location (address is $sp, offset is the parameter offset)
+        self.bind_memory(name, MemoryLocation(address="$sp", offset=offset))
+
     def forget_register(self, register: str) -> None:
         """Remove any reference to a register across all variables."""
         for entry in self._locations.values():
