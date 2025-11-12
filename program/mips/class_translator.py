@@ -66,10 +66,20 @@ class ClassTranslator(MIPSTranslatorBase):
     - Method calls
     """
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.class_layouts: Dict[str, ClassLayout] = {}
-        self.heap_pointer_offset = 0  # Track heap allocations
+    def __init__(self, base_translator=None, expression_translator=None, **kwargs):
+        if base_translator:
+            # Use the base translator's infrastructure
+            self.base = base_translator
+            self.expression_translator = expression_translator
+            self.class_layouts: Dict[str, ClassLayout] = {}
+            self.heap_pointer_offset = 0  # Track heap allocations
+        else:
+            # Standalone mode - create own infrastructure
+            super().__init__(**kwargs)
+            self.base = self
+            self.expression_translator = None
+            self.class_layouts: Dict[str, ClassLayout] = {}
+            self.heap_pointer_offset = 0  # Track heap allocations
 
     def register_class(self, class_name: str, properties: List[str]) -> None:
         """
@@ -114,13 +124,13 @@ class ClassTranslator(MIPSTranslatorBase):
         Args:
             instr: NewInstruction
         """
-        self.emit_comment(f"Allocate object: {instr.class_name}")
+        self.base.emit_comment(f"Allocate object: {instr.class_name}")
 
         layout = self.class_layouts.get(instr.class_name)
         if not layout:
             # Unknown class - use default size
             object_size = 8  # Metadata + one word
-            self.emit_comment(f"Warning: Unknown class {instr.class_name}, using size {object_size}")
+            self.base.emit_comment(f"Warning: Unknown class {instr.class_name}, using size {object_size}")
         else:
             object_size = layout.total_size
 
@@ -128,28 +138,31 @@ class ClassTranslator(MIPSTranslatorBase):
         # syscall 9: sbrk (allocate heap memory)
         # $a0 = number of bytes to allocate
         # Returns: $v0 = address of allocated memory
-        self.emit_text(
+        self.base.emit_text(
             MIPSInstruction("li", ("$a0", str(object_size)), comment="object size")
         )
-        self.emit_text(
+        self.base.emit_text(
             MIPSInstruction("li", ("$v0", "9"), comment="syscall: sbrk")
         )
-        self.emit_text(MIPSInstruction("syscall", (), comment="allocate"))
+        self.base.emit_text(MIPSInstruction("syscall", (), comment="allocate"))
 
         # $v0 now contains pointer to object
         # Store class ID at offset 0 (optional - for type checking)
         # For simplicity, we'll skip this or use a constant
 
-        # Store object pointer in target variable
+        # Store object pointer in target variable using register allocator
         target = instr.target
         if target.startswith("$"):
-            # Target is register
-            self.emit_text(MIPSInstruction("move", (target, "$v0")))
+            # Target is already a register
+            self.base.emit_text(MIPSInstruction("move", (target, "$v0")))
         else:
-            # Target is variable
-            self.emit_text(
-                MIPSInstruction("sw", ("$v0", target), comment=f"store object pointer")
-            )
+            # Allocate register for target variable
+            target_reg, spills, loads = self.base.acquire_register(target, is_write=True)
+            self.base.materialise_spills(spills)
+            # Move object pointer to target register
+            self.base.emit_text(MIPSInstruction("move", (target_reg, "$v0"), comment=f"{target} = object"))
+            # Mark register as updated
+            self.base.address_descriptor.bind_register(target, target_reg)
 
     def translate_property_access(self, instr: PropertyAccessInstruction) -> None:
         """
@@ -191,54 +204,67 @@ class ClassTranslator(MIPSTranslatorBase):
 
         if not instr.is_assignment:
             # Read: target = obj.property
-            self.emit_comment(f"Read property: {obj_ref}.{prop_name}")
+            self.base.emit_comment(f"Read property: {obj_ref}.{prop_name}")
 
-            # Load object pointer into $t0
+            # Get object pointer register
             if obj_ref.startswith("$"):
                 obj_ptr_reg = obj_ref
             else:
-                self.emit_text(MIPSInstruction("lw", ("$t0", obj_ref), comment="load object ptr"))
-                obj_ptr_reg = "$t0"
+                obj_ptr_reg, spills, loads = self.base.acquire_register(obj_ref, is_write=False)
+                self.base.materialise_spills(spills)
+                self.base.materialise_loads(loads)
 
-            # Load property from object[offset]
-            self.emit_text(
+            # Load property from object[offset] into temporary register
+            temp_reg = "$t9"  # Use $t9 as temporary for property access
+            self.base.emit_text(
                 MIPSInstruction(
                     "lw",
-                    ("$t1", f"{prop_offset}({obj_ptr_reg})"),
+                    (temp_reg, f"{prop_offset}({obj_ptr_reg})"),
                     comment=f"load {prop_name}",
                 )
             )
 
-            # Store in target
+            # Store in target variable
             if target.startswith("$"):
-                if target != "$t1":
-                    self.emit_text(MIPSInstruction("move", (target, "$t1")))
+                if target != temp_reg:
+                    self.base.emit_text(MIPSInstruction("move", (target, temp_reg)))
             else:
-                self.emit_text(MIPSInstruction("sw", ("$t1", target), comment=f"store {prop_name}"))
+                target_reg, spills2, loads2 = self.base.acquire_register(target, is_write=True)
+                self.base.materialise_spills(spills2)
+                self.base.emit_text(MIPSInstruction("move", (target_reg, temp_reg), comment=f"{target} = {prop_name}"))
+                self.base.address_descriptor.bind_register(target, target_reg)
+
+            # Mark target as string if the property name suggests it's a string
+            if self.expression_translator and self._is_string_property(prop_name):
+                self.expression_translator.mark_as_string(target)
 
         else:
             # Write: obj.property = target
-            self.emit_comment(f"Write property: {obj_ref}.{prop_name} = {target}")
+            self.base.emit_comment(f"Write property: {obj_ref}.{prop_name} = {target}")
 
-            # Load object pointer into $t0
+            # Get object pointer register
             if obj_ref.startswith("$"):
                 obj_ptr_reg = obj_ref
             else:
-                self.emit_text(MIPSInstruction("lw", ("$t0", obj_ref), comment="load object ptr"))
-                obj_ptr_reg = "$t0"
+                obj_ptr_reg, spills, loads = self.base.acquire_register(obj_ref, is_write=False)
+                self.base.materialise_spills(spills)
+                self.base.materialise_loads(loads)
 
-            # Load value into $t1
+            # Get value register
             if target.startswith("$"):
                 value_reg = target
             elif target.isdigit() or (target.startswith("-") and target[1:].isdigit()):
-                self.emit_text(MIPSInstruction("li", ("$t1", target)))
-                value_reg = "$t1"
+                # Load constant into temporary register
+                temp_reg = "$t9"
+                self.base.emit_text(MIPSInstruction("li", (temp_reg, target)))
+                value_reg = temp_reg
             else:
-                self.emit_text(MIPSInstruction("lw", ("$t1", target), comment="load value"))
-                value_reg = "$t1"
+                value_reg, spills2, loads2 = self.base.acquire_register(target, is_write=False)
+                self.base.materialise_spills(spills2)
+                self.base.materialise_loads(loads2)
 
             # Store to object[offset]
-            self.emit_text(
+            self.base.emit_text(
                 MIPSInstruction(
                     "sw",
                     (value_reg, f"{prop_offset}({obj_ptr_reg})"),
@@ -270,7 +296,7 @@ class ClassTranslator(MIPSTranslatorBase):
             params: Method parameters (excluding 'this')
             return_target: Where to store return value
         """
-        self.emit_comment(f"Method call: {obj_ref}.{method_name}")
+        self.base.emit_comment(f"Method call: {obj_ref}.{method_name}")
 
         # In CompilScript, methods are typically called as regular functions
         # with a mangled name like "ClassName_methodName"
@@ -287,3 +313,9 @@ class ClassTranslator(MIPSTranslatorBase):
     def get_class_layout(self, class_name: str) -> Optional[ClassLayout]:
         """Get the layout for a class."""
         return self.class_layouts.get(class_name)
+
+    def _is_string_property(self, prop_name: str) -> bool:
+        """Check if a property is likely a string based on its name."""
+        string_keywords = ['name', 'message', 'msg', 'text', 'str', 'title', 'description', 'label']
+        prop_lower = prop_name.lower()
+        return any(keyword in prop_lower for keyword in string_keywords)
