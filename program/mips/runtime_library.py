@@ -30,7 +30,7 @@ class RuntimeLibrary:
         return [
             MIPSComment(""),
             MIPSComment("Runtime function: print"),
-            MIPSComment("Prints strings or integers passed in $a0"),
+            MIPSComment("Prints strings or integers passed in $a0 (with newline)"),
             MIPSLabel("print"),
             # Heuristic: data addresses live at/after _data_segment_start (0x1001xxxx in SPIM)
             # Values below that are treated as integers and routed to print_int.
@@ -38,9 +38,15 @@ class RuntimeLibrary:
             MIPSInstruction("blt", ("$a0", "$t0", "_print_int_fallback"), comment="if value < base -> int"),
             MIPSInstruction("li", ("$v0", "4"), comment="syscall: print_string"),
             MIPSInstruction("syscall", ()),
+            MIPSInstruction("la", ("$a0", "_newline"), comment="newline"),
+            MIPSInstruction("li", ("$v0", "4"), comment="syscall: print_string"),
+            MIPSInstruction("syscall", ()),
             MIPSInstruction("jr", ("$ra",), comment="return"),
             MIPSLabel("_print_int_fallback"),
             MIPSInstruction("li", ("$v0", "1"), comment="syscall: print_int"),
+            MIPSInstruction("syscall", ()),
+            MIPSInstruction("la", ("$a0", "_newline"), comment="newline"),
+            MIPSInstruction("li", ("$v0", "4"), comment="syscall: print_string"),
             MIPSInstruction("syscall", ()),
             MIPSInstruction("jr", ("$ra",), comment="return"),
         ]
