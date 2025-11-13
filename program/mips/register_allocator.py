@@ -105,6 +105,37 @@ class RegisterAllocator:
         self._live_variables.clear()
         self._next_use.clear()
 
+    def force_stack_location(self, name: str, offset: int) -> None:
+        """
+        Force a variable to be at a specific stack location.
+        Used for function parameters that must be at known offsets.
+
+        Args:
+            name: Variable name
+            offset: Stack offset from $sp
+        """
+        self.address_descriptor.force_spill_slot(name, offset)
+
+    def force_register_location(self, name: str, register: str) -> None:
+        """
+        Force a variable to be in a specific register.
+        Used for leaf function parameters that stay in $a0-$a3.
+
+        Args:
+            name: Variable name
+            register: Register name (e.g., "$a0")
+        """
+        # Mark the variable as being in this register
+        self.address_descriptor.bind_register(name, register)
+
+        # Only update register descriptor if this is an allocatable register
+        # $a0-$a3 are not allocatable (they're argument registers)
+        if self.register_descriptor.is_allocatable(register):
+            self.register_descriptor.associate(register, name, dirty=False)
+            # Mark the register as occupied
+            if register in self.available_registers:
+                self.available_registers.remove(register)
+
     def set_liveness_context(
         self,
         live_variables: Optional[Iterable[str]] = None,
@@ -143,12 +174,34 @@ class RegisterAllocator:
 
         existing_register = self.register_descriptor.find_register_with(variable)
         if existing_register and existing_register not in forbidden:
-            # Variable already resides in a register; simply mark its usage.
-            self.register_descriptor.mark_used(existing_register)
-            if is_write:
-                self.register_descriptor.mark_dirty(existing_register, variable)
-                self.address_descriptor.mark_dirty(variable)
-            return existing_register, [], []
+            # Variable already resides in a register.
+            # However, if the variable has been spilled to memory and the register
+            # is not marked as dirty (meaning the value might be stale), we need to
+            # verify that the register truly contains the current value.
+            entry = self.address_descriptor.get(variable)
+            state = self.register_descriptor.state(existing_register)
+
+            # Check if register value is trustworthy:
+            # - If variable is dirty in the register, the register has the latest value
+            # - If variable is NOT in memory (no spill), register is the only copy
+            # - Otherwise, we need to reload from memory to be safe
+            is_register_trustworthy = (
+                variable in state.dirty or  # Register has been written to
+                not entry.is_in_memory()     # No memory copy exists
+            )
+
+            if is_register_trustworthy:
+                # Register value is valid, use it directly
+                self.register_descriptor.mark_used(existing_register)
+                if is_write:
+                    self.register_descriptor.mark_dirty(existing_register, variable)
+                    self.address_descriptor.mark_dirty(variable)
+                return existing_register, [], []
+
+            # Register value is stale, we need to reload from memory
+            # Clear the stale association and fall through to acquire a fresh register
+            self.register_descriptor.dissociate(existing_register, variable)
+            self.address_descriptor.unbind_register(variable, existing_register)
 
         candidate_registers = self._candidate_registers(preferred_registers, forbidden)
         register, spills = self._acquire_register(candidate_registers)
@@ -202,6 +255,48 @@ class RegisterAllocator:
                     actions.append(spill)
                 self.address_descriptor.unbind_register(variable, register)
             self.register_descriptor.dissociate(register)
+        return actions
+
+    def spill_caller_saved_registers(self) -> List[SpillAction]:
+        """
+        Spill all variables in caller-saved registers ($t0-$t9).
+
+        This should be called before function calls to preserve live variables
+        that are in temporary registers, since MIPS calling convention allows
+        callees to freely modify $t registers.
+
+        Returns:
+            List of SpillActions for variables in $t registers
+        """
+        actions: List[SpillAction] = []
+        temp_registers = [f"$t{i}" for i in range(10)]
+
+        for register in temp_registers:
+            if register not in self._allocatable_registers:
+                continue
+
+            state = self.register_descriptor.state(register)
+            if state.is_free():
+                continue
+
+            # Spill all variables in this temp register
+            for variable in list(state.variables):
+                # Skip constants and labels - they don't need preservation
+                if variable.startswith("_const_") or variable.startswith("_label_"):
+                    continue
+
+                # Build spill action (will spill if dirty or ensure it's in memory)
+                spill = self._build_spill_action(variable, register)
+                if spill:
+                    actions.append(spill)
+
+                # After spilling, clear the register association
+                # This forces a reload next time the variable is needed
+                self.address_descriptor.unbind_register(variable, register)
+
+            # Clear the register entirely
+            self.register_descriptor.dissociate(register)
+
         return actions
 
     # ------------------------------------------------------------------ #
