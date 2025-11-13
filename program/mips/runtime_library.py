@@ -83,7 +83,8 @@ class RuntimeLibrary:
             MIPSComment("Input: $a0 = num elements, $a1 = element size"),
             MIPSComment("Output: $v0 = array address"),
             MIPSLabel("allocate_array"),
-            MIPSInstruction("mul", ("$a0", "$a0", "$a1"), comment="total bytes = num * size"),
+            MIPSInstruction("mult", ("$a0", "$a1"), comment="product in LO"),
+            MIPSInstruction("mflo", ("$a0",), comment="total bytes -> $a0"),
             MIPSInstruction("li", ("$v0", "9"), comment="syscall: sbrk"),
             MIPSInstruction("syscall", ()),
             MIPSInstruction("jr", ("$ra",), comment="return"),
@@ -181,8 +182,8 @@ class RuntimeLibrary:
             MIPSInstruction("sw", ("$s2", "4($sp)"), comment="save $s2"),
             MIPSInstruction("sw", ("$s3", "0($sp)"), comment="save $s3"),
 
-            # Setup
-            MIPSInstruction("la", ("$s0", "_str_buffer"), comment="buffer address"),
+            # Setup - use separate buffer to avoid conflicts with string_concat
+            MIPSInstruction("la", ("$s0", "_int_buffer"), comment="buffer address"),
             MIPSInstruction("move", ("$s1", "$a0"), comment="save number"),
             MIPSInstruction("move", ("$s2", "$s0"), comment="current position"),
             MIPSInstruction("li", ("$s3", "0"), comment="is_negative flag"),
