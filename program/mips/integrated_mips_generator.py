@@ -32,6 +32,7 @@ from tac.instruction import (
     PropertyAccessInstruction,
     NewInstruction,
     CommentInstruction,
+    AllocateArrayInstruction,
 )
 
 from .function_translator import FunctionTranslator
@@ -73,7 +74,10 @@ class IntegratedMIPSGenerator:
         # Create other translators, passing function_translator as the base
         self.expression_translator = ExpressionTranslator(self.function_translator)
         self.control_flow_translator = ControlFlowTranslator(self.function_translator)
-        self.class_translator = ClassTranslator()
+        self.class_translator = ClassTranslator(
+            base_translator=self.function_translator,
+            expression_translator=self.expression_translator
+        )
 
         # Create optimizer
         self.optimizer = PeepholeOptimizer()
@@ -113,6 +117,9 @@ class IntegratedMIPSGenerator:
         """
         # Pre-process: extract string literals from TAC
         self._extract_string_literals(tac_instructions)
+
+        # Pre-process: register classes from TAC comments
+        self._register_classes_from_tac(tac_instructions)
 
         # Generate header
         self._generate_header()
@@ -169,6 +176,21 @@ class IntegratedMIPSGenerator:
         """Parse a single TAC instruction line."""
         # BeginFunc
         if line.startswith('BeginFunc'):
+            # Try with frame_size and params: BeginFunc name, count, frame_size=N, params=[a,b,c]
+            match = re.match(r'BeginFunc\s+(\w+),\s*(\d+),\s*frame_size=(\d+),\s*params=\[([^\]]*)\]', line)
+            if match:
+                param_names = [p.strip() for p in match.group(4).split(',') if p.strip()]
+                return BeginFuncInstruction(match.group(1), int(match.group(2)), int(match.group(3)), param_names)
+            # Try with frame_size only: BeginFunc name, params, frame_size=N
+            match = re.match(r'BeginFunc\s+(\w+),\s*(\d+),\s*frame_size=(\d+)', line)
+            if match:
+                return BeginFuncInstruction(match.group(1), int(match.group(2)), int(match.group(3)))
+            # Try with params only: BeginFunc name, count, params=[a,b,c]
+            match = re.match(r'BeginFunc\s+(\w+),\s*(\d+),\s*params=\[([^\]]*)\]', line)
+            if match:
+                param_names = [p.strip() for p in match.group(3).split(',') if p.strip()]
+                return BeginFuncInstruction(match.group(1), int(match.group(2)), 0, param_names)
+            # Try without frame_size or params: BeginFunc name, params
             match = re.match(r'BeginFunc\s+(\w+),\s*(\d+)', line)
             if match:
                 return BeginFuncInstruction(match.group(1), int(match.group(2)))
@@ -234,8 +256,31 @@ class IntegratedMIPSGenerator:
             if match:
                 return ConditionalGotoInstruction(match.group(1), match.group(2))
 
+        # Property assignment: obj.property = value (check BEFORE array operations)
+        elif '.' in line and '=' in line:
+            match = re.match(r'(\w+)\.(\w+)\s*=\s*(.+)', line)
+            if match:
+                return PropertyAccessInstruction(match.group(3).strip(), match.group(1), match.group(2), is_assignment=True)
+
+        # Array operations: Check for array assignment first (x[y] = z)
+        # If it's not array assignment, fall through to check for array read (x = y[z])
+        elif '[' in line and ']' in line and '=' in line:
+            bracket_pos = line.index('[')
+            equals_pos = line.index('=')
+            # Array write: x[i] = val (bracket before equals)
+            if bracket_pos < equals_pos:
+                match = re.match(r'(\w+)\[(\w+)\]\s*=\s*(.+)', line)
+                if match:
+                    return ArrayAccessInstruction(match.group(3).strip(), match.group(1), match.group(2), is_assignment=True)
+            # If bracket comes AFTER equals, it might be array read - continue to assignment block
+
         # Assignment: x = y op z, x = op y, x = y
-        elif '=' in line:
+        if '=' in line:
+            # Try allocate_array: x = allocate_array size, elem_size
+            match = re.match(r'(\w+)\s*=\s*allocate_array\s+(\S+),\s*(\d+)', line)
+            if match:
+                return AllocateArrayInstruction(match.group(1), match.group(2), int(match.group(3)))
+
             # Try binary with str_concat (needs special handling for string literals)
             match = re.match(r'(\w+)\s*=\s*(.+?)\s+(str_concat)\s+(.+)', line)
             if match:
@@ -245,6 +290,27 @@ class IntegratedMIPSGenerator:
             match = re.match(r'(\w+)\s*=\s*(\S+)\s+(\+|-|\*|/|%|==|!=|<|>|<=|>=|&&|\|\|)\s+(\S+)', line)
             if match:
                 return AssignInstruction(match.group(1), match.group(2), match.group(3), match.group(4))
+
+            # Try array access read: x = y[z]
+            match = re.match(r'(\w+)\s*=\s*(\w+)\[(\w+)\]', line)
+            if match:
+                return ArrayAccessInstruction(match.group(1), match.group(2), match.group(3), is_assignment=False)
+
+            # Try new operator: x = new ClassName
+            match = re.match(r'(\w+)\s*=\s*new\s+(\w+)', line)
+            if match:
+                return NewInstruction(match.group(1), match.group(2))
+
+            # Try property access read: x = obj.property
+            match = re.match(r'(\w+)\s*=\s*(\w+)\.(\w+)', line)
+            if match:
+                return PropertyAccessInstruction(match.group(1), match.group(2), match.group(3), is_assignment=False)
+
+            # Try len operator: x = len y
+            match = re.match(r'(\w+)\s*=\s*len\s+(\w+)', line)
+            if match:
+                # Treat as unary operation with 'len' operator
+                return AssignInstruction(match.group(1), match.group(2), 'len')
 
             # Try unary: x = op y
             match = re.match(r'(\w+)\s*=\s*(-|!)\s*(\S+)', line)
@@ -288,6 +354,71 @@ class IntegratedMIPSGenerator:
                     label = self.data_manager.add_string_literal(instr.operand2)
                     instr.operand2 = label
 
+    def _register_classes_from_tac(self, tac_instructions: List):
+        """
+        Pre-process TAC comments to register class layouts.
+
+        Looks for patterns like:
+        # Class: ClassName
+        # Field: fieldName
+        # Field: fieldName2
+        # Extends: ParentClass
+
+        Classes can inherit fields from parent classes.
+        """
+        current_class = None
+        current_fields = []
+        current_parent = None
+        all_classes = {}  # Store class info: {name: {'fields': [...], 'parent': '...'}}
+
+        for instr in tac_instructions:
+            if isinstance(instr, CommentInstruction):
+                comment = instr.comment.strip()
+
+                # Check for "# Class: ClassName"
+                if comment.startswith("Class:"):
+                    # Save previous class
+                    if current_class is not None:
+                        all_classes[current_class] = {
+                            'fields': current_fields,
+                            'parent': current_parent
+                        }
+
+                    # Start new class
+                    current_class = comment.split(":", 1)[1].strip()
+                    current_fields = []
+                    current_parent = None
+
+                # Check for "# Field: fieldName"
+                elif comment.startswith("Field:") and current_class:
+                    field_name = comment.split(":", 1)[1].strip()
+                    current_fields.append(field_name)
+
+                # Check for "# Extends: ParentClass"
+                elif comment.startswith("Extends:") and current_class:
+                    current_parent = comment.split(":", 1)[1].strip()
+
+        # Save last class
+        if current_class is not None:
+            all_classes[current_class] = {
+                'fields': current_fields,
+                'parent': current_parent
+            }
+
+        # Now register classes with inheritance
+        for class_name, class_info in all_classes.items():
+            fields = class_info['fields'][:]  # Copy fields
+            parent = class_info['parent']
+
+            # Inherit fields from parent
+            if parent and parent in all_classes:
+                parent_fields = all_classes[parent]['fields']
+                # Add parent fields at the beginning
+                fields = parent_fields + fields
+
+            # Register the class
+            self.class_translator.register_class(class_name, fields)
+
     def _generate_data_section(self):
         """Generate .data section with string literals and arrays."""
         # Generate data section from data_manager
@@ -311,8 +442,8 @@ class IntegratedMIPSGenerator:
                 in_function = True
                 function_code.append(instr)
             elif isinstance(instr, EndFuncInstruction):
-                in_function = True  # Stay in function mode
                 function_code.append(instr)
+                in_function = False  # Exit function mode after EndFunc
             elif in_function:
                 function_code.append(instr)
             else:
@@ -321,6 +452,26 @@ class IntegratedMIPSGenerator:
         # Emit main label first
         self.function_translator.emit_label("main")
         self.function_translator.emit_comment("Main program")
+
+        # Initialize stack pointer (required for SPIM)
+        # MIPS convention: stack grows downward from high memory
+        # Set $sp to a safe high address (e.g., 0x7fffeffc)
+        self.function_translator.emit_text(
+            MIPSInstruction("li", ("$sp", "0x7fffeffc"), comment="initialize stack pointer")
+        )
+
+        # Allocate frame for main (for variable spills)
+        # Use a fixed size large enough for most programs
+        # Variables in main will be spilled relative to $fp
+        main_frame_size = 2048  # Conservative size for main
+        self.function_translator.emit_text(
+            MIPSInstruction("addi", ("$sp", "$sp", f"-{main_frame_size}"),
+                          comment=f"allocate frame for main ({main_frame_size} bytes)")
+        )
+
+        self.function_translator.emit_text(
+            MIPSInstruction("move", ("$fp", "$sp"), comment="set frame pointer")
+        )
 
         # Translate global code (inside main)
         for instr in global_code:
@@ -345,6 +496,9 @@ class IntegratedMIPSGenerator:
 
     def _translate_instruction(self, instr):
         """Translate a single TAC instruction to MIPS."""
+        # Debug: print instruction type
+        # print(f"Translating: {type(instr).__name__}: {instr}")
+
         if isinstance(instr, BeginFuncInstruction):
             self.function_translator.translate_begin_func(instr)
 
@@ -366,6 +520,29 @@ class IntegratedMIPSGenerator:
         elif isinstance(instr, LabelInstruction):
             self.function_translator.emit_label(instr.label)
 
+            # CRITICAL FOR LOOPS: Clear register associations after labels to force
+            # variables to be reloaded from memory. This ensures loop variables maintain
+            # consistent values across iterations, especially after jumps from loop updates.
+            # Labels like for_cond, while_start, do_start are loop entry points where
+            # we need to reload spilleaded variables to get updated values.
+            label_name = instr.label.lower()
+            is_loop_header = any(keyword in label_name for keyword in [
+                'for_cond', 'while_start', 'do_start', 'foreach_start'
+            ])
+
+            if is_loop_header:
+                # For loop headers, clear ALL register associations to force reloads
+                # This is conservative but ensures correctness
+                for reg in list(self.function_translator.register_allocator.register_descriptor.registers()):
+                    state = self.function_translator.register_allocator.register_descriptor.state(reg)
+                    for var in list(state.variables):
+                        # Don't clear constants and labels
+                        if not (var.startswith('_const_') or var.startswith('_label_') or var.startswith('_ctrl_temp')):
+                            self.function_translator.address_descriptor.unbind_register(var, reg)
+                    # Keep the register itself available but clear variable associations
+                    if not state.pinned:
+                        self.function_translator.register_allocator.register_descriptor.dissociate(reg)
+
         elif isinstance(instr, GotoInstruction):
             self.control_flow_translator.translate_goto(instr)
 
@@ -383,6 +560,12 @@ class IntegratedMIPSGenerator:
 
         elif isinstance(instr, CommentInstruction):
             self.function_translator.emit_comment(instr.comment)
+
+        elif isinstance(instr, AllocateArrayInstruction):
+            self.expression_translator.translate_allocate_array(instr)
+
+        elif isinstance(instr, ArrayAccessInstruction):
+            self.expression_translator.translate_array_access(instr)
 
     def _nodes_to_string(self, nodes: List) -> str:
         """Convert MIPS nodes to assembly string."""
