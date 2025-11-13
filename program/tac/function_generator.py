@@ -7,7 +7,10 @@ from AST.ast_nodes import (
     Block,
     ASTNode,
     ClassDeclaration,
-    VariableDeclaration
+    VariableDeclaration,
+    ForStatement,
+    WhileStatement,
+    IfStatement
 )
 from AST.symbol_table import Symbol, Scope
 from .base_generator import BaseTACVisitor, TACGenerationError
@@ -72,6 +75,48 @@ class FunctionTACGenerator(BaseTACVisitor):
         self.expression_generator._function_generator = self
         self.control_flow_generator._function_generator = self
 
+    def _count_local_variables(self, node) -> int:
+        """
+        Count the number of local variables declared in a function body.
+
+        This includes:
+        - Variable declarations
+        - For loop variables
+        - Temporaries (estimated)
+
+        Args:
+            node: Function body or block node
+
+        Returns:
+            Estimated number of local variables
+        """
+        count = 0
+
+        # Handle different node types
+        if isinstance(node, Block):
+            for stmt in node.statements:
+                count += self._count_local_variables(stmt)
+        elif isinstance(node, VariableDeclaration):
+            count += 1
+        elif isinstance(node, ForStatement):
+            # For statement has its own variable
+            count += 1
+            if hasattr(node, 'body'):
+                count += self._count_local_variables(node.body)
+        elif isinstance(node, WhileStatement):
+            if hasattr(node, 'body'):
+                count += self._count_local_variables(node.body)
+        elif isinstance(node, IfStatement):
+            if hasattr(node, 'if_branch'):
+                count += self._count_local_variables(node.if_branch)
+            if hasattr(node, 'else_branch') and node.else_branch:
+                count += self._count_local_variables(node.else_branch)
+        elif hasattr(node, 'body'):
+            # Generic case for nodes with body
+            count += self._count_local_variables(node.body)
+
+        return count
+
     def visit_FunctionDeclaration(self, node: FunctionDeclaration) -> Optional[str]:
         """
         Generate TAC for function declaration.
@@ -97,6 +142,13 @@ class FunctionTACGenerator(BaseTACVisitor):
         # Extract parameter names
         param_names = [param.name for param in node.parameters]
 
+        # Calculate frame size
+        local_var_count = self._count_local_variables(node.body)
+        # Frame needs space for: locals + saved registers ($ra, $fp minimum) + temporaries (estimate)
+        saved_regs = 2  # $ra and $fp
+        temp_estimate = 10  # Estimate for temporaries
+        frame_size = (local_var_count + saved_regs + temp_estimate) * 4  # 4 bytes per word
+
         # Create activation record
         activation_record = self.address_manager.enter_function(function_name, param_names)
 
@@ -104,8 +156,8 @@ class FunctionTACGenerator(BaseTACVisitor):
         self.enter_scope()
 
         # Emit function prologue
-        self.emit(CommentInstruction(f"Function: {function_name}"))
-        self.emit(BeginFuncInstruction(function_name, len(param_names)))
+        self.emit(CommentInstruction(f"Function: {function_name} (params: {len(param_names)})"))
+        self.emit(BeginFuncInstruction(function_name, len(param_names), frame_size, param_names))
 
         # Generate label for function start using label manager to track it
         func_label = self.new_label("func", function_name)
@@ -195,7 +247,7 @@ class FunctionTACGenerator(BaseTACVisitor):
 
         # Emit constructor prologue
         self.emit(CommentInstruction(f"Constructor: {class_name}"))
-        self.emit(BeginFuncInstruction(constructor_name, len(param_names)))
+        self.emit(BeginFuncInstruction(constructor_name, len(param_names), param_names=param_names))
 
         func_label = f"method_{class_name}_constructor"
         self.emit(LabelInstruction(func_label))
@@ -240,7 +292,7 @@ class FunctionTACGenerator(BaseTACVisitor):
 
         # Emit method prologue
         self.emit(CommentInstruction(f"Method: {class_name}.{method.name}"))
-        self.emit(BeginFuncInstruction(method_name, len(param_names)))
+        self.emit(BeginFuncInstruction(method_name, len(param_names), param_names=param_names))
 
         func_label = f"method_{class_name}_{method.name}"
         self.emit(LabelInstruction(func_label))
@@ -276,7 +328,7 @@ class FunctionTACGenerator(BaseTACVisitor):
         self.enter_scope()
 
         self.emit(CommentInstruction(f"Default Constructor: {class_name}"))
-        self.emit(BeginFuncInstruction(constructor_name, 1))
+        self.emit(BeginFuncInstruction(constructor_name, 1, param_names=['this']))
         self.emit(LabelInstruction(f"default_constructor_{class_name}"))
 
         # Allocate 'this' parameter
@@ -495,9 +547,8 @@ class FunctionTACGenerator(BaseTACVisitor):
                     raise
                 raise TACGenerationError(f"Failed to evaluate return expression: {str(e)}", node.value)
 
-            # Release temporary if it was created for this expression
-            if return_temp.startswith('t'):
-                self.release_temp(return_temp)
+            # NOTE: Do NOT release the temporary here - it needs to remain valid
+            # for the MIPS generator to use it in the return instruction
         else:
             # Void return
             self.emit(ReturnInstruction())
