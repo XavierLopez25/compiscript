@@ -131,8 +131,9 @@ class DataSectionManager:
         """
         nodes = []
 
-        # Add .data directive
+        # Add .data directive and segment anchor
         nodes.append(MIPSDirective(".data", ()))
+        nodes.append(MIPSLabel("_data_segment_start"))
         nodes.append(MIPSComment("String literals"))
 
         # Add string literals

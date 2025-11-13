@@ -96,9 +96,33 @@ class MIPSTranslatorBase:
     def spill_everything(self) -> List[SpillAction]:
         return self.register_allocator.spill_all()
 
-    def spill_caller_saved(self) -> List[SpillAction]:
+    def spill_caller_saved(
+        self,
+        preserve_registers: Optional[Iterable[str]] = None,
+    ) -> List[SpillAction]:
         """Spill caller-saved registers before function calls."""
-        return self.register_allocator.spill_caller_saved_registers()
+        return self.register_allocator.spill_caller_saved_registers(preserve_registers)
+
+    def invalidate_caller_saved(self, preserve_registers: Optional[Iterable[str]] = None) -> None:
+        """
+        Invalidate caller-saved registers after function/runtime calls.
+
+        Args:
+            preserve_registers: Optional iterable of registers that should be
+                left untouched (e.g., destination registers that will be
+                overwritten immediately after the call).
+        """
+        self.register_allocator.invalidate_caller_saved_registers(preserve_registers)
+
+    def spill_actions_to_instructions(self, actions: Iterable[SpillAction]) -> List[MIPSInstruction]:
+        """
+        Convert spill actions into concrete instructions without emitting them.
+        Useful when we need to interleave spill code within instruction streams.
+        """
+        instructions: List[MIPSInstruction] = []
+        for action in actions:
+            instructions.extend(self._spill_to_instructions(action))
+        return instructions
 
     # ------------------------------------------------------------------ #
     # Materialising allocator actions

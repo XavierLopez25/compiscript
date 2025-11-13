@@ -257,7 +257,10 @@ class RegisterAllocator:
             self.register_descriptor.dissociate(register)
         return actions
 
-    def spill_caller_saved_registers(self) -> List[SpillAction]:
+    def spill_caller_saved_registers(
+        self,
+        preserve_registers: Optional[Iterable[str]] = None,
+    ) -> List[SpillAction]:
         """
         Spill all variables in caller-saved registers ($t0-$t9).
 
@@ -270,8 +273,11 @@ class RegisterAllocator:
         """
         actions: List[SpillAction] = []
         temp_registers = [f"$t{i}" for i in range(10)]
+        preserved = set(preserve_registers or [])
 
         for register in temp_registers:
+            if register in preserved:
+                continue
             if register not in self._allocatable_registers:
                 continue
 
@@ -298,6 +304,52 @@ class RegisterAllocator:
             self.register_descriptor.dissociate(register)
 
         return actions
+
+    def invalidate_caller_saved_registers(
+        self,
+        preserve_registers: Optional[Iterable[str]] = None,
+    ) -> None:
+        """
+        Invalidate allocator metadata for caller-saved registers.
+
+        After a function (or runtime) call, the contents of $t registers are
+        undefined.  This method detaches any variables that were believed to
+        live in those registers so future uses reload from memory.
+
+        Args:
+            preserve_registers: Registers that should be left untouched. This is
+                useful for registers that are immediately rewritten after the
+                call (e.g., the destination of the result).
+        """
+        preserved = set(preserve_registers or [])
+        temp_registers = [f"$t{i}" for i in range(10)]
+
+        for register in temp_registers:
+            if register in preserved:
+                continue
+            if register not in self._allocatable_registers:
+                continue
+
+            state = self.register_descriptor.state(register)
+            if state.is_free():
+                continue
+
+            for variable in list(state.variables):
+                if variable.startswith("_const_") or variable.startswith("_label_"):
+                    continue
+
+                entry = self.address_descriptor.get(variable)
+
+                # Ensure there is always a spill slot so the value can be
+                # reloaded later.  This should already be true for regular
+                # variables, but we defensively allocate one if needed.
+                if entry.memory is None and entry.spill_slot is None:
+                    entry.spill_slot = self.address_descriptor.ensure_spill_slot(variable)
+
+                self.address_descriptor.unbind_register(variable, register)
+
+            if not state.pinned:
+                self.register_descriptor.dissociate(register)
 
     # ------------------------------------------------------------------ #
     # Internal helpers

@@ -9,3 +9,5 @@ ast.png
 program/tac/__pycache__/
 program/tests/tac/__pycache__/
 program/mips/__pycache__/
+*.tac
+*.s

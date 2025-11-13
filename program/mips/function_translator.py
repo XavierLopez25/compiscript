@@ -313,20 +313,8 @@ class FunctionTranslator(MIPSTranslatorBase):
         call_instrs = CallingConvention.generate_function_call(sanitized_func_name)
         self.emit_text_many(call_instrs)
 
-        # CRITICAL: After function call, invalidate all caller-saved register associations
-        # The callee may have modified $t0-$t9, so variables in those registers are now stale
-        # This forces them to be reloaded from memory on next use
-        temp_registers = [f"$t{i}" for i in range(10)]
-        for reg in temp_registers:
-            state = self.register_allocator.register_descriptor.state(reg)
-            for var in list(state.variables):
-                # Only unbind if variable exists in memory (has been spilled)
-                entry = self.address_descriptor.get(var)
-                if entry.spill_slot is not None or entry.memory is not None:
-                    self.address_descriptor.unbind_register(var, reg)
-            # Don't dissociate pinned registers
-            if not state.pinned:
-                self.register_allocator.register_descriptor.dissociate(reg)
+        # After the call, mark caller-saved registers as invalid so future uses reload from memory
+        self.invalidate_caller_saved()
 
         # Retrieve return value if needed
         if instr.target:

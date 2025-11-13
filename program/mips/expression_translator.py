@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import List, Optional
+from typing import List, Optional, Sequence
 from tac.instruction import AssignInstruction
 
 from .arithmetic import (
@@ -199,6 +199,20 @@ class ExpressionTranslator:
         # Emit generated instructions
         self.base.emit_text_many(instructions)
 
+        # If destination is spilled, sync memory so loops/arrays see updates
+        entry = self.base.address_descriptor.get(target)
+        if entry.spill_slot is not None or entry.memory is not None:
+            if entry.spill_slot is not None:
+                self.base.emit_text(
+                    MIPSInstruction(
+                        "sw",
+                        (dest_reg, f"{entry.spill_slot}($fp)"),
+                        comment=f"update {target} in memory",
+                    )
+                )
+                self.base.address_descriptor.mark_clean(target)
+                self.base.address_descriptor.unbind_register(target, dest_reg)
+
     def _generate_binary_instructions(
         self,
         operator: str,
@@ -322,7 +336,12 @@ class ExpressionTranslator:
             else:
                 # Variable or temporary - might be int/bool, needs conversion
                 instructions.append(MIPSInstruction("move", ("$a0", src1_reg), comment="load value to convert"))
-                instructions.append(MIPSInstruction("jal", ("int_to_string",), comment="convert to string"))
+                self._append_runtime_call(
+                    instructions,
+                    "int_to_string",
+                    comment="convert to string",
+                    preserve_registers=[dest_reg],
+                )
                 instructions.append(MIPSInstruction("move", ("$s0", "$v0"), comment="save str1"))
 
             # Handle second operand
@@ -335,13 +354,23 @@ class ExpressionTranslator:
             else:
                 # Variable/temp/register - might be int/bool, needs conversion
                 instructions.append(MIPSInstruction("move", ("$a0", src2_operand), comment="load value to convert"))
-                instructions.append(MIPSInstruction("jal", ("int_to_string",), comment="convert to string"))
+                self._append_runtime_call(
+                    instructions,
+                    "int_to_string",
+                    comment="convert to string",
+                    preserve_registers=[dest_reg],
+                )
                 instructions.append(MIPSInstruction("move", ("$s1", "$v0"), comment="save str2"))
 
             # Now call string_concat with both strings
             instructions.append(MIPSInstruction("move", ("$a0", "$s0"), comment="str1 to $a0"))
             instructions.append(MIPSInstruction("move", ("$a1", "$s1"), comment="str2 to $a1"))
-            instructions.append(MIPSInstruction("jal", ("string_concat",), comment="call string concat"))
+            self._append_runtime_call(
+                instructions,
+                "string_concat",
+                comment="call string concat",
+                preserve_registers=[dest_reg],
+            )
 
             # Save result temporarily before restoring $s registers
             instructions.append(MIPSInstruction("move", ("$v1", "$v0"), comment="save result in $v1"))
@@ -437,6 +466,20 @@ class ExpressionTranslator:
             raise ValueError(f"Unsupported unary operator: {operator}")
 
         self.base.emit_text_many(instructions)
+
+        # If the target already has a spill slot/memory location, sync it
+        entry = self.base.address_descriptor.get(target)
+        if entry.spill_slot is not None or entry.memory is not None:
+            if entry.spill_slot is not None:
+                self.base.emit_text(
+                    MIPSInstruction(
+                        "sw",
+                        (dest_reg, f"{entry.spill_slot}($fp)"),
+                        comment=f"update {target} in memory",
+                    )
+                )
+                self.base.address_descriptor.mark_clean(target)
+                self.base.address_descriptor.unbind_register(target, dest_reg)
 
     # Simple assignments
     def _translate_simple_assignment(self, target: str, source: str) -> None:
@@ -574,6 +617,33 @@ class ExpressionTranslator:
             self.base.materialise_loads(loads)
             return reg
 
+    def _append_runtime_call(
+        self,
+        instructions: List[MIPSInstruction],
+        function_name: str,
+        *,
+        comment: str,
+        preserve_registers: Optional[Sequence[str]] = None,
+    ) -> None:
+        """
+        Append a runtime function call, ensuring caller-saved registers are
+        spilled beforehand and allocator metadata is invalidated afterwards.
+        """
+        if preserve_registers:
+            preserve = tuple(
+                reg for reg in preserve_registers if reg and reg.startswith("$t")
+            )
+        else:
+            preserve = None
+
+        spill_actions = self.base.spill_caller_saved(preserve)
+        if spill_actions:
+            instructions.extend(self.base.spill_actions_to_instructions(spill_actions))
+
+        instructions.append(MIPSInstruction("jal", (function_name,), comment=comment))
+
+        self.base.invalidate_caller_saved(preserve)
+
     def translate_allocate_array(self, instr):
         """
         Translate array allocation instruction to MIPS.
@@ -582,11 +652,6 @@ class ExpressionTranslator:
         MIPS: Call allocate_array runtime function
         """
         from tac.instruction import AllocateArrayInstruction
-
-        # Get destination register
-        dest_reg, spills, loads = self.base.acquire_register(instr.target, is_write=True)
-        self.base.materialise_spills(spills)
-        self.base.materialise_loads(loads)
 
         # Load size into $a0
         if instr.size.isdigit():
@@ -598,8 +663,18 @@ class ExpressionTranslator:
         # Load element size into $a1
         self.base.emit_text(MIPSInstruction("li", ("$a1", str(instr.elem_size)), comment="element size"))
 
+        # Prepare for runtime call (preserve the eventual destination register once acquired)
+        dest_reg, spills, loads = self.base.acquire_register(instr.target, is_write=True)
+        self.base.materialise_spills(spills)
+        self.base.materialise_loads(loads)
+        preserve = [dest_reg] if dest_reg.startswith("$t") else None
+
         # Call allocate_array
+        spill_actions = self.base.spill_caller_saved(preserve)
+        if spill_actions:
+            self.base.materialise_spills(spill_actions)
         self.base.emit_text(MIPSInstruction("jal", ("allocate_array",), comment="allocate array"))
+        self.base.invalidate_caller_saved(preserve)
 
         # Move result from $v0 to destination register
         self.base.emit_text(MIPSInstruction("move", (dest_reg, "$v0"), comment="save array address"))

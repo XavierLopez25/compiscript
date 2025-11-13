@@ -116,6 +116,11 @@ class AddressDescriptor:
         self._spill_offsets[name] = offset
         entry = self.get(name)
         entry.spill_slot = offset
+        # Ensure future allocations do not reuse this offset
+        next_offset = offset + WORD_SIZE
+        if next_offset > self._next_spill_offset:
+            self._next_spill_offset = next_offset
+        self._max_spill_offset = max(self._max_spill_offset, next_offset)
         # Clear any register associations - variable is only in memory
         entry.registers.clear()
         # Mark as clean since value is in memory
