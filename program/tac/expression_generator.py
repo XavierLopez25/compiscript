@@ -45,6 +45,11 @@ class ExpressionTACGenerator(BaseTACVisitor):
         # Convert boolean literals to 1/0 for TAC (standard for MIPS translation)
         if isinstance(node.value, bool):
             return "1" if node.value else "0"
+        # For string literals, preserve quotes so MIPS generator can identify them
+        if isinstance(node.value, str):
+            # If it doesn't already have quotes, add them
+            if not (node.value.startswith('"') and node.value.endswith('"')):
+                return f'"{node.value}"'
         return str(node.value)
 
     def visit_NullLiteral(self, node: NullLiteral) -> str:
@@ -267,9 +272,9 @@ class ExpressionTACGenerator(BaseTACVisitor):
         # Emit comment for array creation
         self.emit(CommentInstruction(f"Array literal with {len(node.elements)} elements"))
 
-        # For now, we'll create a simple array allocation
-        # This might need to be extended when we have proper array support
-        self.emit(AssignInstruction(result_temp, f"array[{len(node.elements)}]"))
+        # Generate proper array allocation instruction
+        from .instruction import AllocateArrayInstruction
+        self.emit(AllocateArrayInstruction(result_temp, str(len(node.elements)), 4))
 
         # Generate TAC for each element and assign to array
         for i, element in enumerate(node.elements):
@@ -321,13 +326,14 @@ class ExpressionTACGenerator(BaseTACVisitor):
                         # Use parent's constructor
                         actual_constructor = f"{class_node.superclass}_constructor"
 
-        # Push constructor arguments (if any)
+        # Push 'this' parameter FIRST (the instance we just created)
+        # IMPORTANT: 'this' must be first parameter for method/constructor calling convention
+        self.emit(PushParamInstruction(instance_temp))
+
+        # Push constructor arguments (if any) AFTER this
         for arg in node.arguments:
             arg_temp = self.visit(arg)
             self.emit(PushParamInstruction(arg_temp))
-
-        # Push 'this' parameter (the instance we just created)
-        self.emit(PushParamInstruction(instance_temp))
 
         # Call constructor
         constructor_result = self.new_temp()
