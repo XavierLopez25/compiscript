@@ -96,6 +96,10 @@ class MIPSTranslatorBase:
     def spill_everything(self) -> List[SpillAction]:
         return self.register_allocator.spill_all()
 
+    def spill_caller_saved(self) -> List[SpillAction]:
+        """Spill caller-saved registers before function calls."""
+        return self.register_allocator.spill_caller_saved_registers()
+
     # ------------------------------------------------------------------ #
     # Materialising allocator actions
     # ------------------------------------------------------------------ #
@@ -154,7 +158,7 @@ class MIPSTranslatorBase:
             return [
                 MIPSInstruction(
                     "sw",
-                    (action.register, f"{offset}($sp)"),
+                    (action.register, f"{offset}($fp)"),
                     comment=f"spill {action.variable}",
                 )
             ]
@@ -182,7 +186,7 @@ class MIPSTranslatorBase:
             return [
                 MIPSInstruction(
                     "lw",
-                    (action.register, f"{offset}($sp)"),
+                    (action.register, f"{offset}($fp)"),
                     comment=f"reload {action.variable}",
                 )
             ]
