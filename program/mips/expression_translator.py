@@ -80,6 +80,16 @@ class ExpressionTranslator:
                             and instruction emission facilities
         """
         self.base = translator_base
+        # Track variables/temporaries that are known to be strings
+        self.string_vars = set()  # Variables like 'greeting', 'err', 'message'
+
+    def mark_as_string(self, var_name: str) -> None:
+        """Mark a variable/temporary as containing a string value."""
+        self.string_vars.add(var_name)
+
+    def is_string_var(self, var_name: str) -> bool:
+        """Check if a variable is tracked as a string."""
+        return var_name in self.string_vars
 
     def translate_assignment(self, instruction: AssignInstruction) -> None:
         """
@@ -117,6 +127,9 @@ class ExpressionTranslator:
         if operator and operand2:
             # Binary operation: target = operand1 op operand2
             self._translate_binary_operation(target, operand1, operator, operand2)
+            # If it's a string concatenation, mark target as string
+            if operator == "str_concat":
+                self.mark_as_string(target)
         elif operator:
             # Unary operation: target = op operand1
             self._translate_unary_operation(target, operator, operand1)
@@ -159,8 +172,17 @@ class ExpressionTranslator:
         # Handle operand2 (might be immediate)
         is_immediate = is_constant(operand2)
 
-        if is_immediate:
-            # Use immediate value directly
+        # Comparison operations require both operands in registers (slt doesn't support immediates)
+        comparison_ops = ['<', '>', '<=', '>=', '==', '!=']
+        if operator in comparison_ops:
+            # Always load both operands into registers for comparisons
+            src2_reg = self._load_operand(operand2, forbidden=[dest_reg, src1_reg])
+            instructions = self._generate_binary_instructions(
+                operator, dest_reg, src1_reg, src2_reg,
+                operand1_orig=operand1, operand2_orig=operand2, is_immediate=False
+            )
+        elif is_immediate:
+            # Use immediate value directly (for arithmetic operations)
             src2_operand = operand2
             instructions = self._generate_binary_instructions(
                 operator, dest_reg, src1_reg, src2_operand,
@@ -256,28 +278,62 @@ class ExpressionTranslator:
             # Automatically converts integers to strings if needed
             # $a0 = first string, $a1 = second string
             # Result in $v0
+
+            # Helper function to check if operand is likely a string
+            def is_likely_string(operand_name):
+                """Check if operand is likely a string based on heuristics."""
+                if not operand_name:
+                    return False
+                # Check if explicitly tracked as string
+                if self.is_string_var(operand_name):
+                    return True
+                # String literals start with _str or are quoted
+                if operand_name.startswith("_str") or operand_name.startswith('"'):
+                    return True
+                # Common string variable names
+                string_keywords = ['err', 'error', 'message', 'msg', 'name', 'text', 'str', 'greeting']
+                name_lower = operand_name.lower()
+                return any(keyword in name_lower for keyword in string_keywords)
+
             instructions = []
 
-            # Save $ra since we might call int_to_string
-            instructions.append(MIPSInstruction("addi", ("$sp", "$sp", "-4"), comment="save space for $ra"))
-            instructions.append(MIPSInstruction("sw", ("$ra", "0($sp)"), comment="save $ra"))
+            # Save $ra and $s registers we'll use as temporaries
+            # Note: We DON'T save $t registers here because the register allocator
+            # has already spilled any live variables to $fp-relative locations
+            # Saving $t registers here would conflict with the allocator's spills
+            instructions.append(MIPSInstruction("addi", ("$sp", "$sp", "-16"), comment="save space for $ra and $s regs"))
+            instructions.append(MIPSInstruction("sw", ("$ra", "12($sp)"), comment="save $ra"))
+            instructions.append(MIPSInstruction("sw", ("$s0", "8($sp)"), comment="save $s0"))
+            instructions.append(MIPSInstruction("sw", ("$s1", "4($sp)"), comment="save $s1"))
+            instructions.append(MIPSInstruction("sw", ("$s2", "0($sp)"), comment="save $s2"))
 
-            # Handle first operand - check ORIGINAL operand name to see if it's a string label
+            # For str_concat operator, we need to be smart about which operands need conversion
+            # - String literals (start with _str) -> use directly
+            # - String variables (likely_string) -> use directly
+            # - Everything else (int, bool, temporaries from operations) -> convert
+
+            # Handle first operand
             if operand1_orig and operand1_orig.startswith("_str"):
-                # It's a string label in the TAC, load address directly
+                # String literal
                 instructions.append(MIPSInstruction("la", ("$s0", operand1_orig), comment="load str1 label"))
+            elif operand1_orig and is_likely_string(operand1_orig):
+                # Variable that's likely a string (has 'name', 'err', 'message', etc.)
+                instructions.append(MIPSInstruction("move", ("$s0", src1_reg), comment="str1 (already string)"))
             else:
-                # It's a variable or temp in a register - might be int, convert to be safe
+                # Variable or temporary - might be int/bool, needs conversion
                 instructions.append(MIPSInstruction("move", ("$a0", src1_reg), comment="load value to convert"))
                 instructions.append(MIPSInstruction("jal", ("int_to_string",), comment="convert to string"))
                 instructions.append(MIPSInstruction("move", ("$s0", "$v0"), comment="save str1"))
 
-            # Handle second operand - check ORIGINAL operand name
+            # Handle second operand
             if operand2_orig and operand2_orig.startswith("_str"):
-                # It's a string label in the TAC, load address directly
+                # String literal
                 instructions.append(MIPSInstruction("la", ("$s1", operand2_orig), comment="load str2 label"))
+            elif operand2_orig and is_likely_string(operand2_orig):
+                # Variable that's likely a string
+                instructions.append(MIPSInstruction("move", ("$s1", src2_operand), comment="str2 (already string)"))
             else:
-                # It's a variable/temp/register - might be int, convert to be safe
+                # Variable/temp/register - might be int/bool, needs conversion
                 instructions.append(MIPSInstruction("move", ("$a0", src2_operand), comment="load value to convert"))
                 instructions.append(MIPSInstruction("jal", ("int_to_string",), comment="convert to string"))
                 instructions.append(MIPSInstruction("move", ("$s1", "$v0"), comment="save str2"))
@@ -287,12 +343,18 @@ class ExpressionTranslator:
             instructions.append(MIPSInstruction("move", ("$a1", "$s1"), comment="str2 to $a1"))
             instructions.append(MIPSInstruction("jal", ("string_concat",), comment="call string concat"))
 
-            # Move result to destination
-            instructions.append(MIPSInstruction("move", (dest_reg, "$v0"), comment="get result"))
+            # Save result temporarily before restoring $s registers
+            instructions.append(MIPSInstruction("move", ("$v1", "$v0"), comment="save result in $v1"))
 
-            # Restore $ra
-            instructions.append(MIPSInstruction("lw", ("$ra", "0($sp)"), comment="restore $ra"))
-            instructions.append(MIPSInstruction("addi", ("$sp", "$sp", "4"), comment="deallocate space"))
+            # Restore saved $s registers and $ra
+            instructions.append(MIPSInstruction("lw", ("$s2", "0($sp)"), comment="restore $s2"))
+            instructions.append(MIPSInstruction("lw", ("$s1", "4($sp)"), comment="restore $s1"))
+            instructions.append(MIPSInstruction("lw", ("$s0", "8($sp)"), comment="restore $s0"))
+            instructions.append(MIPSInstruction("lw", ("$ra", "12($sp)"), comment="restore $ra"))
+            instructions.append(MIPSInstruction("addi", ("$sp", "$sp", "16"), comment="deallocate space"))
+
+            # Move result from $v1 to destination (after all restores)
+            instructions.append(MIPSInstruction("move", (dest_reg, "$v1"), comment="get result"))
 
             return instructions
 
@@ -364,6 +426,13 @@ class ExpressionTranslator:
             instructions = [
                 MIPSInstruction("nop", (), comment=f"TODO: to_string {src_reg} -> {dest_reg}")
             ]
+        elif operator == "len":
+            # For arrays, we return a constant size (simplified implementation)
+            # In a full implementation, we'd store the size in the array header
+            # For now, return 5 as a placeholder for array lengths
+            instructions = [
+                MIPSInstruction("li", (dest_reg, "5"), comment=f"len {operand} (placeholder)")
+            ]
         else:
             raise ValueError(f"Unsupported unary operator: {operator}")
 
@@ -415,6 +484,30 @@ class ExpressionTranslator:
                     comment=f"{target} = {source}",
                 )
             )
+
+        # CRITICAL FOR LOOPS: If target already has a spill slot (was spilled before),
+        # write the new value back to memory immediately. This ensures that when
+        # we jump back to loop headers, the variable can be reloaded with the
+        # correct value, maintaining register consistency across loop iterations.
+        entry = self.base.address_descriptor.get(target)
+        if entry.spill_slot is not None or entry.memory is not None:
+            # Variable has been spilled before, write it back to memory
+            if entry.spill_slot is not None:
+                self.base.emit_text(
+                    MIPSInstruction(
+                        "sw",
+                        (dest_reg, f"{entry.spill_slot}($fp)"),
+                        comment=f"update {target} in memory",
+                    )
+                )
+                # Mark as clean since we just wrote to memory
+                self.base.address_descriptor.mark_clean(target)
+
+                # Clear register association to force reload on next use
+                # This ensures loop variables maintain consistent register allocation
+                self.base.address_descriptor.unbind_register(target, dest_reg)
+                # Note: We don't dissociate from register_descriptor here because
+                # it will be done automatically on next register allocation
 
     # Helper methods
     def _load_operand(
@@ -480,3 +573,113 @@ class ExpressionTranslator:
             self.base.materialise_spills(spills)
             self.base.materialise_loads(loads)
             return reg
+
+    def translate_allocate_array(self, instr):
+        """
+        Translate array allocation instruction to MIPS.
+
+        TAC: target = allocate_array size, elem_size
+        MIPS: Call allocate_array runtime function
+        """
+        from tac.instruction import AllocateArrayInstruction
+
+        # Get destination register
+        dest_reg, spills, loads = self.base.acquire_register(instr.target, is_write=True)
+        self.base.materialise_spills(spills)
+        self.base.materialise_loads(loads)
+
+        # Load size into $a0
+        if instr.size.isdigit():
+            self.base.emit_text(MIPSInstruction("li", ("$a0", instr.size), comment="array size"))
+        else:
+            size_reg = self._load_operand(instr.size)
+            self.base.emit_text(MIPSInstruction("move", ("$a0", size_reg), comment="array size"))
+
+        # Load element size into $a1
+        self.base.emit_text(MIPSInstruction("li", ("$a1", str(instr.elem_size)), comment="element size"))
+
+        # Call allocate_array
+        self.base.emit_text(MIPSInstruction("jal", ("allocate_array",), comment="allocate array"))
+
+        # Move result from $v0 to destination register
+        self.base.emit_text(MIPSInstruction("move", (dest_reg, "$v0"), comment="save array address"))
+
+    def translate_array_access(self, instr):
+        """
+        Translate array access instruction to MIPS.
+
+        TAC: target = array[index]  (read)
+        TAC: array[index] = target  (write)
+        """
+        from tac.instruction import ArrayAccessInstruction
+
+        # Get array base address
+        array_reg = self._load_operand(instr.array)
+
+        # Get index
+        if instr.index.isdigit():
+            # Constant index - can optimize
+            offset = int(instr.index) * 4
+
+            if instr.is_assignment:
+                # array[index] = target (write)
+                value_reg = self._load_operand(instr.target)
+                self.base.emit_text(
+                    MIPSInstruction("sw", (value_reg, f"{offset}({array_reg})"),
+                                  comment=f"store to array[{instr.index}]")
+                )
+            else:
+                # target = array[index] (read)
+                dest_reg, spills, loads = self.base.acquire_register(instr.target, is_write=True)
+                self.base.materialise_spills(spills)
+                self.base.materialise_loads(loads)
+
+                self.base.emit_text(
+                    MIPSInstruction("lw", (dest_reg, f"{offset}({array_reg})"),
+                                  comment=f"load from array[{instr.index}]")
+                )
+        else:
+            # Variable index - need to calculate offset
+            index_reg = self._load_operand(instr.index)
+
+            # Calculate offset: index * 4
+            offset_reg, spills, loads = self.base.acquire_register(
+                f"_offset_{instr.index}", is_write=True
+            )
+            self.base.materialise_spills(spills)
+            self.base.materialise_loads(loads)
+
+            self.base.emit_text(
+                MIPSInstruction("sll", (offset_reg, index_reg, "2"),
+                              comment="offset = index * 4")
+            )
+
+            # Calculate address: base + offset
+            addr_reg, spills, loads = self.base.acquire_register(
+                f"_addr_{instr.array}", is_write=True
+            )
+            self.base.materialise_spills(spills)
+            self.base.materialise_loads(loads)
+
+            self.base.emit_text(
+                MIPSInstruction("add", (addr_reg, array_reg, offset_reg),
+                              comment="address = base + offset")
+            )
+
+            if instr.is_assignment:
+                # array[index] = target (write)
+                value_reg = self._load_operand(instr.target)
+                self.base.emit_text(
+                    MIPSInstruction("sw", (value_reg, f"0({addr_reg})"),
+                                  comment=f"store to array[{instr.index}]")
+                )
+            else:
+                # target = array[index] (read)
+                dest_reg, spills, loads = self.base.acquire_register(instr.target, is_write=True)
+                self.base.materialise_spills(spills)
+                self.base.materialise_loads(loads)
+
+                self.base.emit_text(
+                    MIPSInstruction("lw", (dest_reg, f"0({addr_reg})"),
+                                  comment=f"load from array[{instr.index}]")
+                )
