@@ -69,12 +69,17 @@ class LabelInstruction(TACInstruction):
 class BeginFuncInstruction(TACInstruction):
     """Function prologue: BeginFunc n"""
 
-    def __init__(self, name: str, param_count: int):
+    def __init__(self, name: str, param_count: int, frame_size: int = 0, param_names: list = None):
         self.name = name
         self.param_count = param_count
+        self.frame_size = frame_size
+        self.param_names = param_names if param_names is not None else []
 
     def __str__(self) -> str:
-        return f"BeginFunc {self.name}, {self.param_count}"
+        params_str = f", params=[{','.join(self.param_names)}]" if self.param_names else ""
+        if self.frame_size > 0:
+            return f"BeginFunc {self.name}, {self.param_count}, frame_size={self.frame_size}{params_str}"
+        return f"BeginFunc {self.name}, {self.param_count}{params_str}"
 
 class EndFuncInstruction(TACInstruction):
     """Function epilogue: EndFunc"""
@@ -180,3 +185,14 @@ class CommentInstruction(TACInstruction):
 
     def __str__(self) -> str:
         return f"# {self.comment}"
+
+class AllocateArrayInstruction(TACInstruction):
+    """Array allocation: x = allocate_array size, elem_size"""
+
+    def __init__(self, target: str, size: str, elem_size: int = 4):
+        self.target = target
+        self.size = size
+        self.elem_size = elem_size
+
+    def __str__(self) -> str:
+        return f"{self.target} = allocate_array {self.size}, {self.elem_size}"
