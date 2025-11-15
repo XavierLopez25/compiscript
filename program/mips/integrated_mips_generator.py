@@ -69,7 +69,7 @@ class IntegratedMIPSGenerator:
         self.data_manager = DataSectionManager()
 
         # Create function translator (base translator)
-        self.function_translator = FunctionTranslator()
+        self.function_translator = FunctionTranslator(data_section_manager=self.data_manager)
 
         # Create other translators, passing function_translator as the base
         self.expression_translator = ExpressionTranslator(self.function_translator)
@@ -353,6 +353,16 @@ class IntegratedMIPSGenerator:
                 if instr.operand2 and self.data_manager.is_string_literal(instr.operand2):
                     label = self.data_manager.add_string_literal(instr.operand2)
                     instr.operand2 = label
+            elif isinstance(instr, ReturnInstruction):
+                # Check if return value is a quoted string literal (not a variable)
+                if (instr.value and
+                    isinstance(instr.value, str) and
+                    instr.value.startswith('"') and
+                    instr.value.endswith('"')):
+                    # Add to data section and get label
+                    label = self.data_manager.add_string_literal(instr.value)
+                    # Replace with label reference
+                    instr.value = label
 
     def _register_classes_from_tac(self, tac_instructions: List):
         """

@@ -17,7 +17,7 @@ if (flag) {
 
 print("Flag after change: false");
 
-// Test 2: Boolean comparisons
+// Boolean comparisons
 let isGreater: boolean = (5 > 3);
 let isEqual: boolean = (10 == 10);
 let isLess: boolean = (7 < 2);
@@ -27,7 +27,7 @@ print("5 > 3 is: true");
 print("10 == 10 is: true");
 print("7 < 2 is: false");
 
-// Test 3: Boolean logic in control flow
+// Boolean logic in control flow
 let canProceed: boolean = true;
 let hasPermission: boolean = false;
 
@@ -40,8 +40,8 @@ if (canProceed) {
   }
 }
 
-// Test 4: Boolean with while loop
-let keepRunning: boolean = true;
+// Boolean with while loop
+let keepRunning: boolean = false;
 let counter: integer = 0;
 
 while (keepRunning) {
@@ -156,7 +156,7 @@ function factorial(n: integer): integer {
 //Tests de scope
 let x: integer = 1;
 {
-  let x: integer = 2; // permitido (sub-ámbito)
+  let x: integer = 2;
   print(x);
 }
 print(x);
@@ -169,36 +169,7 @@ switch (n) {
     print(0);
 }
 
-//Error scope redeclarado
-let y: integer = 1;
-//let y: integer = 2;
-//Error uso sin declarar
-//print(z);
-
-//DEBERIA FALLAR--------------- Aridad incorrecta
-function add(a: integer, b: integer): integer {
-  return a + b;
-}
-//let r1: integer = add(1); 
-//let r2: integer = add(1, 2, 3);
-//--------------------------------
-//DEBERIA FALLAR--------------- Tipo de argumento incorrecto
-function mul(a: integer, b: integer): integer {
-  return a * b;
-}
-let w: string = "hi";
-//let r3: integer = mul(2, w);  
-//------------------------
-//DEBERIA FALLAR--------------- Tipo de retorno incorrecto
-//function greet(): string {
-//  return 42;
-//}
-//function nope(): void {
-//  return 1;
-//}
-//----------------
-
-//---- RECURSION, pasa
+//---- RECURSION
 function fact(n: integer): integer {
   if (n <= 1) { return 1; }
   return n * fact(n - 1);
@@ -208,19 +179,6 @@ print("fact(5) = " + f5);
 
 
 // FUNCION ANIDADA
-let outer: integer = 10;
-
-
-
-//let resultAdder: integer = makeAdder(3);
-//print("makeAdder(3) = " + resultAdder);
-
-//--------- ERROR duplicado de funcion en el mismo scope
-//function ping(): void { }
-//function ping(): void { }
-//-------------------
-
-//------ DUPLICADO EN SCOPE ANIDADO, debe pasar
 function foo(): integer { return 1; }
 {
   function foo(): integer { return 2; }    

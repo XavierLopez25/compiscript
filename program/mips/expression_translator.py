@@ -174,8 +174,10 @@ class ExpressionTranslator:
 
         # Comparison operations require both operands in registers (slt doesn't support immediates)
         comparison_ops = ['<', '>', '<=', '>=', '==', '!=']
-        if operator in comparison_ops:
-            # Always load both operands into registers for comparisons
+        # Division and modulo require both operands in registers (div doesn't support immediates)
+        division_ops = ['/', '%']
+        if operator in comparison_ops or operator in division_ops:
+            # Always load both operands into registers for comparisons and division/modulo
             src2_reg = self._load_operand(operand2, forbidden=[dest_reg, src1_reg])
             instructions = self._generate_binary_instructions(
                 operator, dest_reg, src1_reg, src2_reg,

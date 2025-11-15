@@ -62,8 +62,9 @@ class FunctionTranslator(MIPSTranslatorBase):
     - Register preservation
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, data_section_manager=None, **kwargs):
         super().__init__(**kwargs)
+        self.data_section_manager = data_section_manager
         self.activation_manager = ActivationRecordManager()
         self.current_function: Optional[str] = None
         self.pending_params: List[PendingParameter] = []
@@ -369,9 +370,9 @@ class FunctionTranslator(MIPSTranslatorBase):
                 # It's a numeric literal - load directly
                 self.emit_text(MIPSInstruction("li", ("$v0", instr.value), comment="return literal value"))
             elif instr.value.startswith('"') and instr.value.endswith('"'):
-                # It's a string literal - load address
-                # This case should be rare, but handle it
-                self.emit_text(MIPSInstruction("la", ("$v0", instr.value), comment="return string literal"))
+                # It's a string literal - add to data section and load address
+                label = self.data_section_manager.add_string_literal(instr.value)
+                self.emit_text(MIPSInstruction("la", ("$v0", label), comment="return string literal"))
             else:
                 # It's a variable - try to get from register allocator
                 try:
