@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
+from pathlib import Path
 
 from antlr4 import InputStream, CommonTokenStream
 from antlr4.error.ErrorListener import ErrorListener as ErrorListenerA
@@ -13,6 +14,7 @@ from AST.ast_to_dot import write_dot
 from tac.integrated_generator import IntegratedTACGenerator
 from tac.base_generator import TACGenerationError
 from tac.symbol_annotator import SymbolAnnotator
+from mips.integrated_mips_generator import IntegratedMIPSGenerator
 
 import tempfile
 import json
@@ -32,8 +34,13 @@ class AnalyzeRequest(BaseModel):
     return_ast_dot: bool = False  # opcional: devolver DOT
     generate_tac: bool = False    # opcional: generar TAC
 
+BASE_DIR = Path(__file__).resolve().parent
+DEFAULT_TAC_PATH = BASE_DIR / "output.tac"
+DEFAULT_MIPS_PATH = BASE_DIR / "output.s"
+
+
 class Diagnostic(BaseModel):
-    kind: str               # "lexer" | "parser" | "semantic" | "tac"
+    kind: str               # "lexer" | "parser" | "semantic" | "tac" | "mips"
     message: str
     line: Optional[int] = None
     column: Optional[int] = None
@@ -142,6 +149,27 @@ def analyze(req: AnalyzeRequest):
                         functions_registered=functions_registered,
                         validation_errors=validation_errors
                     )
+
+                    # Persist TAC to disk (needed for MIPS stage and debugging)
+                    tac_file_path = DEFAULT_TAC_PATH
+                    try:
+                        with open(tac_file_path, "w", encoding="utf-8") as f:
+                            for line in tac_lines:
+                                f.write(line + "\n")
+                    except Exception as e:
+                        diagnostics.append(Diagnostic(kind="tac", message=f"Failed to write TAC file: {str(e)}"))
+                        tac_file_path = None
+
+                    # Generate MIPS output if TAC was saved successfully
+                    if tac_file_path is not None:
+                        try:
+                            mips_generator = IntegratedMIPSGenerator(enable_optimization=True)
+                            mips_code = mips_generator.generate_from_tac_file(str(tac_file_path))
+
+                            with open(DEFAULT_MIPS_PATH, "w", encoding="utf-8") as f:
+                                f.write(mips_code)
+                        except Exception as e:
+                            diagnostics.append(Diagnostic(kind="mips", message=f"MIPS generation error: {str(e)}"))
 
                     # Annotate symbol table with memory information
                     try:
