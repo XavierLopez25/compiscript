@@ -1,671 +1,458 @@
-# CompilScript Compiler
+# CompilScript
 
-CompilScript is a statically-typed programming language with object-oriented features, implemented as a compiler with comprehensive lexical, syntactic, and semantic analysis phases. This project provides a complete implementation using Python and ANTLR for educational and research purposes in compiler construction.
+CompilScript es un compilador completo para un subconjunto de TypeScript con enfoque académico. La solución cubre cada fase del pipeline (análisis léxico/sintáctico, semántica, generación de código intermedio y backend MIPS) y expone ese pipeline a través de un servicio REST y un IDE web. Este README centraliza la documentación dispersa del repositorio, describe a detalle la arquitectura final y explica cómo recrear el entorno del proyecto.
 
-## Table of Contents
+---
 
-1. [Project Overview](#project-overview)
-2. [Language Features](#language-features)
-3. [Architecture](#architecture)
-4. [Installation and Setup](#installation-and-setup)
-5. [Usage](#usage)
-6. [Testing](#testing)
+## Tabla de contenido
+1. [Visión general y objetivos](#visión-general-y-objetivos)
+2. [Pila tecnológica](#pila-tecnológica)
+3. [Mapa del repositorio](#mapa-del-repositorio)
+4. [Flujo de compilación](#flujo-de-compilación)
+5. [Requisitos previos](#requisitos-previos)
+6. [Guía de preparación rápida](#guía-de-preparación-rápida)
+7. [Modos de ejecución](#modos-de-ejecución)
+8. [API `/analyze`](#api-analyze)
+9. [Características del lenguaje](#características-del-lenguaje)
+10. [Detalle de la implementación](#detalle-de-la-implementación)
+11. [Artefactos generados](#artefactos-generados)
+12. [Pruebas y aseguramiento de calidad](#pruebas-y-aseguramiento-de-calidad)
+13. [Regenerar lexer/parser](#regenerar-lexerparser)
+14. [Solución de problemas y preguntas frecuentes](#solución-de-problemas-y-preguntas-frecuentes)
+15. [Recursos adicionales](#recursos-adicionales)
 
-## Project Overview
+---
 
-### Objectives
+## Visión general y objetivos
 
-The CompilScript compiler project aims to:
+- **Lenguaje objetivo**: CompilScript, un subset de TypeScript con tipado estático fuerte, clases, arreglos de N dimensiones y manejo de excepciones.
+- **Pipeline completo**: Frontend (ANTLR + visitors en Python), representación intermedia (TAC) y backend (MIPS32 con optimizaciones).
+- **Casos de uso**:
+  - Validar código CompilScript desde CLI (`program/Driver.py`).
+  - Exponer diagnósticos y artefactos vía un API REST (`program/server.py`).
+  - Interactuar con el compilador desde un IDE React (`IDE-compiscript/`) que recrea la experiencia de laboratorio.
+- **Objetivos académicos** (según los readmes originales):
+  1. Aplicar técnicas modernas de análisis sintáctico y semántico.
+  2. Construir tablas de símbolos con manejo jerárquico de scopes.
+  3. Generar código intermedio con administración de temporales y registros de activación.
+  4. Desarrollar una herramienta visual que consuma el compilador.
+  5. Documentar arquitectura, lenguaje y pruebas para facilitar la evaluación.
 
-- **Implement a complete compiler front-end** with lexical, syntactic, and semantic analysis phases
-- **Demonstrate modern compiler construction techniques** using visitor patterns and symbol table management
-- **Provide comprehensive error reporting** with precise location information and context-aware messages
-- **Support advanced language features** including classes, inheritance, closures, and type inference
-- **Generate intermediate representations** such as Abstract Syntax Trees (AST) and symbol table dumps
-- **Produce validated Three Address Code (TAC)** through an integrated generator with activation records, label/temporary recycling, and statistics reporting
+## Pila tecnológica
 
-### Key Features
+| Capa                         | Tecnología / Biblioteca                                             |
+|-----------------------------|---------------------------------------------------------------------|
+| Lexer / parser              | [ANTLR 4.13.1](https://www.antlr.org/) (target Python, visitor-based) |
+| Análisis / backend          | Python 3.12 (FastAPI, Pydantic, `antlr4-python3-runtime`, PyTest)    |
+| Representación intermedia   | TAC propio con generadores modulares (`expression`, `control_flow`, `function`) |
+| Backend assembler           | Traductor a MIPS32 + runtime personalizado + optimizador peephole    |
+| Servicio HTTP               | FastAPI + Uvicorn + CORS abiertos                                    |
+| IDE                         | React 19 + Vite 7 + `react-hot-toast` + `react-icons`                |
+| Contenedorización opcional  | Docker + Uvicorn                                                     |
 
-- **Static Type System**: Strong typing with type inference and automatic promotion
-- **Object-Oriented Programming**: Classes, inheritance, constructors, and method overriding
-- **Lexical Scoping**: Proper variable resolution with nested scope support
-- **Control Flow Analysis**: Comprehensive validation of loops, conditionals, and function returns
-- **Error Recovery**: Robust error handling with detailed diagnostic messages
-- **Intermediate Code Generation (NEW)**: End-to-end TAC pipeline covering expressions, control flow, functions, and class activation records
-
-## Language Features
-
-CompilScript supports the following programming constructs:
-
-- **Data Types**: `integer`, `float`, `string`, `boolean`, `void`, arrays, and user-defined classes
-- **Variable Declarations**: Mutable (`var`) and immutable (`const`) bindings with optional type annotations
-- **Control Structures**: `if/else`, `while`, `do-while`, `for`, `switch/case` statements
-- **Functions**: First-class functions with recursion, closures, and nested definitions
-- **Classes**: Object-oriented features with inheritance, constructors, and method dispatch
-- **Arrays**: Multi-dimensional arrays with type-safe element access
-- **Operators**: Arithmetic, logical, relational, and assignment operators with proper precedence
-
-### Recent Additions
-
-- **Compiler Output Artifacts**: Each successful compilation now emits `output.tac` alongside `ast.dot` and `scopes.json` for downstream backend experimentation.
-- **Runtime Metadata**: TAC statistics include temporary usage, function registration counts, and validation warnings to help tune programs.
-
-## Architecture
-
-The compiler follows a modular architecture with clear separation of concerns:
+## Mapa del repositorio
 
 ```
-compiscript/
-├── AST/                    # Abstract Syntax Tree definitions
-│   ├── nodes.py           # AST node classes and type definitions
-│   ├── symbol_table.py    # Symbol table and scope management
-│   └── ast_to_dot.py      # AST visualization (Graphviz DOT export)
-├── semantic/              # Semantic analysis modules
-│   ├── types.py          # Type system implementation
-│   ├── expressions.py    # Expression semantic analysis
-│   ├── statements.py     # Statement semantic analysis
-│   ├── classes.py        # Class and inheritance analysis
-│   ├── helpers.py        # Utility functions
-│   └── state.py          # Semantic analysis state
-├── SemanticVisitor.py    # Main semantic analysis visitor
-├── Driver.py             # Compiler driver and entry point
-├── Compiscript.g4        # ANTLR grammar specification
-└── program/              # Test programs and examples
+.
+├── program/
+│   ├── AST/                        # Nodos, tabla de símbolos, exportadores DOT
+│   ├── semantic/                   # Tipos, expresiones, sentencias, clases, helpers
+│   ├── tac/                        # Generadores TAC + administradores de memoria
+│   ├── mips/                       # Traductores a MIPS, optimizaciones y runtime
+│   ├── tests/                      # PyTest, harness CLI y casos .cps
+│   ├── Compiscript.g4 / .bnf       # Gramática
+│   ├── Driver.py                   # CLI end-to-end
+│   └── server.py                   # FastAPI (endpoint POST /analyze)
+├── IDE-compiscript/                # IDE React + Vite
+├── readmes/                        # Documentación histórica (semántica, TAC, tests, etc.)
+├── Dockerfile                      # Imagen de referencia
+├── README_RUN_PROJECT.md           # Guía breve enfocada en Docker
+├── python-venv.sh                  # Script auxiliar para entornos POSIX
+├── requirements.txt                # Dependencias Python
+└── README.md                       # Este documento
 ```
 
-<img width="1300" height="836" alt="image" src="https://github.com/user-attachments/assets/900ccd55-7678-49e3-a392-0c514b7d4c75" />
+## Flujo de compilación
 
-**New TAC Modules:**
-- `program/tac/` now houses the TAC instruction definitions, temporary/label/address managers, and visitors for expressions, control flow, and functions.
-- `program/tests/tac/` adds a dedicated unit and integration suite verifying every TAC component plus an end-to-end program demo.
-- `IDE-compiscript/` delivers a Vite/React playground so the TAC-enabled compiler can be exercised directly from a browser.
+1. **Lexer y Parser (ANTLR)**  
+   - `CompiscriptLexer.py` y `CompiscriptParser.py` provienen de `Compiscript.g4`.  
+   - El parser produce un árbol concreto que recorre `SemanticVisitor`.
 
-### Architectural Patterns
+2. **Análisis semántico**  
+   - `AST/symbol_table.py` y `semantic/*` resuelven scopes, tipos, clases, control de flujo y excepciones.  
+   - Se exportan `ast.dot` y `scopes.json`.
 
-**Visitor Pattern Implementation:**
-- Base `ASTNode` class with `accept(visitor)` method
-- Modular semantic visitors organized by responsibility
-- Composite `SemanticVisitor` inheriting from all specialized modules
+3. **Generación de TAC**  
+   - `tac/integrated_generator.py` coordina generadores especializados:
+     - `expression_generator` (expresiones, temporales, promoción de tipos).
+     - `control_flow_generator` (if/switch/loops/try-catch).
+     - `function_generator` (funciones libres, métodos, closures y registros de activación).
+   - Se exponen estadísticas: temporales usados, etiquetas y funciones registradas.
 
-**Symbol Table Hierarchy:**
-- Hierarchical scopes with parent-child relationships
-- Separate symbol namespaces for variables, functions, and classes
-- Support for nested environments (functions, classes, blocks)
+4. **Anotación de memoria y símbolos**  
+   - `tac.symbol_annotator.SymbolAnnotator` asigna offsets a variables globales, de stack y heap.
 
-**State Management:**
-- Centralized `SemanticState` with scope tracking
-- Function return type stack for nested functions
-- Loop/switch depth counters for control flow validation
+5. **Backend MIPS**  
+   - `mips/integrated_mips_generator.py` consume `output.tac`, usa traductores específicos, asigna registros y ejecuta `peephole_optimizer`.  
+   - Genera `output.s` listo para SPIM/MARS con runtime incluido.
 
-## Installation and Setup
+6. **IDE / Servicio**  
+   - El IDE envía código a `/analyze` y muestra diagnósticos, TAC, estadísticas y scopes.  
+   - El servidor puede integrarse con otras herramientas externas.
 
-### Prerequisites
+## Requisitos previos
 
-- Docker (recommended) or Python 3.8+ with ANTLR
-- Graphviz (for AST visualization)
+- **Python**: 3.12+ con `pip`.  
+- **Node.js**: 20+ para ejecutar el IDE (opcional).  
+- **Java**: 11+ si regeneras lexer/parser con ANTLR.  
+- **Graphviz**: ejecutable `dot` para convertir `ast.dot` a PNG.  
+- **Docker**: opcional, para aislar dependencias.  
+- **Sistemas soportados**: Windows, macOS, Linux (probado principalmente en Windows + WSL).
 
-### Docker Setup (Recommended)
-
-1. **Build and run the Docker container:**
-   ```bash
-   docker build --rm . -t csp-image && \
-    docker run --rm -it -p 8000:8000 -v "$(pwd)/program":/program -w /program csp-image \
-    uvicorn server:app --host 0.0.0.0 --port 8000 --reload
-   ```
-
-2. **Generate lexer and parser from grammar:**
-   ```bash
-   antlr -Dlanguage=Python3 -visitor -no-listener Compiscript.g4
-   ```
-
-### Manual Setup
-
-1. **Install ANTLR4 Python runtime:**
-   ```bash
-   pip install antlr4-python3-runtime
-   ```
-
-2. **Generate parser components:**
-   ```bash
-   antlr4 -Dlanguage=Python3 -visitor -no-listener Compiscript.g4
-   ```
-
-## Usage
-
-### Basic Compilation
-
-Execute the compiler on a CompilScript source file:
+## Guía de preparación rápida
 
 ```bash
-python3 Driver.py <source_file.cps>
+# 1. Crear y activar entorno (PowerShell)
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+
+# Alternativa Linux/macOS
+python3 -m venv .venv
+source .venv/bin/activate
+
+# 2. Instalar dependencias backend
+pip install --upgrade pip
+pip install -r requirements.txt
+
+# 3. (Opcional) Dependencias del IDE
+cd IDE-compiscript
+npm install
 ```
 
-### Expected Output
+> **Tip**: `python-venv.sh` automatiza la creación de entornos aislados dentro de contenedores evaluados en clase.
 
-**Successful compilation:**
-```
-Semantic analysis completed successfully.
-AST -> ast.dot (use: dot -Tpng ast.dot -o ast.png)
-Scopes -> scopes.json
-\n--- TAC Generation ---
-✓ TAC generation completed successfully.
-✓ Generated <n> TAC instructions
-✓ TAC -> output.tac
-✓ TAC validation passed
-```
+## Modos de ejecución
 
-**Compilation errors:**
-```
-SemanticError at line X, column Y: <detailed error message>
-```
-
-### AST Visualization
-
-Generate a visual representation of the Abstract Syntax Tree:
+### 1. Driver CLI completo
 
 ```bash
-dot -Tpng ast.dot -o ast.png
+python program/Driver.py program/program.cps
 ```
 
-### Scope Analysis
+El driver ejecuta todo el pipeline y produce:
 
-The compiler generates `scopes.json` containing the complete symbol table hierarchy for debugging and analysis.
+- `ast.dot` – AST en Graphviz.
+- `output.tac` – código TAC con comentarios y estadísticas.
+- `scopes.json` – tabla de símbolos anotada.
+- `output.s` – ensamblador MIPS optimizado.
 
-### TAC Output (New)
+Fragmento típico:
 
-Successful runs also write `output.tac`, a fully validated Three Address Code listing with function prologues, parameter handling, control-flow labels, and recorded temporary usage statistics.
-
-## Implementation Details
-
-### Core Components
-
-#### `Driver.py` - Compilation Pipeline
-The main entry point orchestrates the complete compilation process:
-
-```python
-# Parsing phase
-input_stream = FileStream(argv[1], encoding='utf-8')
-lexer = CompiscriptLexer(input_stream)
-parser = CompiscriptParser(CommonTokenStream(lexer))
-tree = parser.program()
-
-# Semantic analysis
-sem = SemanticVisitor()
-ast = sem.visit(tree)
-
-# Output generation
-write_dot(ast, "ast.dot")           # AST visualization
-dump_scopes(sem.global_scope)       # Symbol table export
+```
+V Semantic analysis completed successfully.
+V AST -> ast.dot
+--- TAC Generation ---
+V Generated 132 TAC instructions
+V TAC validation passed
+--- TAC Statistics ---
+  Functions registered: 6
+  Temporaries used: 18
+--- MIPS Generation ---
+V MIPS -> output.s
 ```
 
-**Outputs:**
-- `ast.dot`: Graphviz visualization of the Abstract Syntax Tree
-- `scopes.json`: Complete symbol table hierarchy with all declared symbols
-- `output.tac`: Three Address Code program with validation diagnostics and statistics (new)
-- Console report of TAC instruction count, validation warnings, and temporary usage metrics (new)
+### 2. Servicio REST (FastAPI + Uvicorn)
 
-#### `SemanticVisitor.py` - Composite Visitor
-Combines all semantic analysis modules using multiple inheritance:
-
-```python
-class SemanticVisitor(Types, Statements, Expressions, Classes, Helpers, CompiscriptVisitor):
-    def __init__(self):
-        self.state = SemanticState()
+```bash
+uvicorn program.server:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-**Design Features:**
-- **Method Resolution Order (MRO)**: Left-to-right precedence for visitor methods
-- **State Proxies**: Unified access to semantic state across all modules
-- **Modular Responsibilities**: Each mixin handles specific language constructs
+Expone `POST /analyze`, con CORS abiertos para el IDE. Úsalo para integración con herramientas externas o el frontend React.
 
-#### `tac/` Package (New) - Intermediate Code Generation
-- **`instruction.py`**: TAC instruction classes for assignments, jumps, and function prologues/epilogues.
-- **`temp_manager.py`**: Scope-aware temporary allocation with recycling and usage reporting.
-- **`label_manager.py`**: Break/continue tracking, label resolution, and diagnostics for unresolved jumps.
-- **`address_manager.py`**: Activation record builder that assigns offsets for parameters, locals, and temporaries.
-- **`expression_generator.py` / `control_flow_generator.py` / `function_generator.py`**: Visitor passes that lower AST nodes to TAC.
-- **`integrated_generator.py`**: Coordinates all generators, validates the resulting TAC, and produces roll-up statistics.
+### 3. IDE web (React)
 
-### AST Infrastructure
-
-#### `AST/nodes.py` - AST Node Definitions
-Defines the complete Abstract Syntax Tree structure:
-
-**Base Classes:**
-- `ASTNode`: Base class with `type`, `line`, `column` attributes and `accept(visitor)` method
-- `Type(Enum)`: Semantic types (`INTEGER`, `FLOAT`, `STRING`, `BOOLEAN`, `VOID`)
-- `TypeNode`: Declared types with base name and array dimensions
-
-**Expression Nodes:**
-- `Literal(value, type)`: Primitive literals with inferred types
-- `Variable(name)`: Identifier references with symbol resolution
-- `BinaryOperation(left, right, operator)`: Binary expressions with type checking
-- `CallExpression(callee, arguments)`: Function/method calls with signature validation
-- `PropertyAccess(object, property)`: Member access with class validation
-- `ArrayLiteral(elements)`: Array initialization with element type unification
-
-**Statement Nodes:**
-- `Program(statements)`: Root AST node
-- `Block(statements)`: Scoped statement groups
-- `VariableDeclaration(name, declared_type, initializer, is_const)`: Variable bindings
-- Control flow: `IfStatement`, `WhileStatement`, `ForStatement`, `SwitchStatement`
-- `FunctionDeclaration(name, parameters, return_type, body)`: Function definitions
-- `ClassDeclaration(name, superclass, members)`: Class definitions with inheritance
-
-#### `AST/symbol_table.py` - Symbol Management
-Implements hierarchical symbol resolution:
-
-```python
-class Symbol:
-    def __init__(self, name, type_node, is_const=False, kind="var"):
-        # Supports variables, functions, classes with metadata
-
-class Scope:
-    def __init__(self, parent=None):
-        self.symbols = {}      # Local symbol table
-        self.children = []     # Nested scopes
-    
-    def define(symbol):        # Prevents redeclaration
-    def lookup(name):          # Searches upward through hierarchy
+```bash
+cd IDE-compiscript
+npm run dev
 ```
 
-**Features:**
-- **Redeclaration Detection**: Prevents duplicate symbols in same scope
-- **Hierarchical Lookup**: Searches parent scopes for symbol resolution
-- **Scope Tree Export**: Generates complete scope hierarchy for debugging
+Abrir `http://localhost:5173` (asegúrate de tener corriendo FastAPI). El IDE incluye:
 
-#### `AST/ast_to_dot.py` - AST Visualization
-Exports AST to Graphviz DOT format:
-- **Node Labeling**: Shows class name, attributes (`name=`, `op=`, `type=`)
-- **Edge Generation**: Represents parent-child relationships in AST
-- **Type Annotations**: Displays inferred types and declared type nodes
+- Editor custom (tabs convertidos, auto indentación, resaltado usando sentinelas Unicode).
+- Panel de diagnósticos con líneas/columnas resaltadas y sincronizadas con las barras laterales.
+- Vista de TAC + estadísticas de instrucciones, temporales y funciones.
+- Toasts de éxito/error (`react-hot-toast`) y estado `isRunning`.
 
-### Semantic Analysis Modules
+### 4. Docker (modo laboratorio)
 
-#### `semantic/state.py` - Centralized State Management
-Manages all semantic analysis state in a single dataclass:
-
-```python
-@dataclass
-class SemanticState:
-    global_scope: Scope                          # Root scope
-    current_scope: Optional[Scope]               # Active scope
-    func_return_stack: List[Optional[TypeNode]]  # Return type validation
-    loop_depth: int                              # Break/continue validation
-    switch_depth: int                            # Switch break validation
-    classes: Dict[str, dict]                     # Class metadata
-    current_class: Optional[str]                 # Active class context
+```bash
+docker build --rm . -t compiscript
+docker run --rm -it -p 8000:8000 -v "%cd%/program":/program -w /program compiscript \
+  uvicorn server:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-#### `semantic/types.py` - Type System
-Handles type annotations and TypeNode construction:
-- **Type Parsing**: Converts grammar rules to `TypeNode(base, dimensions)`
-- **Primitive Normalization**: Lowercases built-in types (`integer`, `float`, etc.)
-- **Array Dimension Counting**: Parses `[]` notation for multi-dimensional arrays
-- **Class Type Preservation**: Maintains original casing for user-defined types
+> En Linux/macOS reemplaza `"%cd%"` por `$(pwd)` y el `\` final por `&&`. Con esto el IDE o cualquier cliente HTTP puede conectarse al analizador dentro del contenedor.
 
-#### `semantic/expressions.py` - Expression Analysis
-Comprehensive expression type checking and validation:
+## API `/analyze`
 
-**Arithmetic Operations:**
-- Binary operators (`+`, `-`, `*`, `/`, `%`) with numeric type promotion
-- String concatenation via `+` operator
-- Type compatibility validation with detailed error messages
+- **Método**: `POST`
+- **Body**:
 
-**Logical Operations:**
-- Boolean operators (`&&`, `||`, `!`) with strict boolean operand requirements
-- Comparison operators (`==`, `!=`, `<`, `<=`, `>`, `>=`) with type compatibility rules
-
-**Object-Oriented Features:**
-- **Property Access**: `obj.property` with class member validation
-- **Method Calls**: `obj.method(args)` with signature verification
-- **Object Construction**: `new ClassName(args)` with constructor validation
-- **`this` Expression**: Context-aware self-reference validation
-
-**Array Operations:**
-- **Array Literals**: `[1, 2, 3]` with element type unification
-- **Array Access**: `array[index]` with bounds and type checking
-- **Multi-dimensional**: Support for `array[i][j]` access patterns
-
-#### `semantic/statements.py` - Statement Analysis
-Handles all statement forms and control flow:
-
-**Variable Management:**
-- **Declarations**: `var`/`let` with optional type inference
-- **Constants**: `const` with mandatory initialization
-- **Assignments**: Type compatibility validation with immutability checks
-
-**Control Flow:**
-- **Conditionals**: `if/else` with boolean condition requirements
-- **Loops**: `while`, `do-while`, `for`, `foreach` with proper scope management
-- **Switch Statements**: `switch/case` with expression type validation and default handling
-
-**Function Declarations:**
-- **Parameter Validation**: Required type annotations for all parameters
-- **Return Type Checking**: Validates all return statements against declared type
-- **Recursive Functions**: Self-reference support through forward declaration
-- **Nested Functions**: Proper scope nesting with closure support
-
-#### `semantic/classes.py` - Object-Oriented Analysis
-Complete class system implementation:
-
-**Class Declaration Processing:**
-- **Inheritance Validation**: Single inheritance with member inheritance
-- **Symbol Registration**: Class names as callable symbols for `new` expressions
-- **Member Processing**: Fields and methods with access control
-
-**Method Analysis:**
-- **Method Signatures**: Parameter and return type validation
-- **Override Checking**: Ensures compatible method signatures in inheritance
-- **`this` Context**: Automatic `this` parameter injection in method scopes
-
-**Class Metadata Management:**
-```python
-classes["Dog"] = {
-    "fields": {"name": TypeNode("string", 0), ...},
-    "methods": {"speak": {"params": [...], "ret": TypeNode("void", 0)}, ...},
-    "super": "Animal" or None
+```json
+{
+  "code": "var x: integer = 1;",
+  "return_ast_dot": true,
+  "generate_tac": true
 }
 ```
 
-#### `semantic/helpers.py` - Utility Functions
-Provides shared functionality across all semantic modules:
+- **Respuesta**:
 
-**Type Compatibility:**
-- `_types_compatible_assign(declared, actual)`: Assignment validation
-- `_promote_numeric(type_a, type_b)`: Automatic numeric promotion (int→float)
-- `_class_is_or_inherits_from(class, expected)`: Inheritance checking
-
-**Symbol Resolution:**
-- `_lookup_class(name)`: Class metadata retrieval with error handling
-- `_lookup_member(class_name, property)`: Field/method resolution in class hierarchy
-
-**Array Type Management:**
-- `_array_element_typenode(array_type)`: Element type extraction
-- `_unify_array_element_types(elements)`: Type unification for array literals
-
-**Error Reporting:**
-- `_raise_ctx(ctx, message)`: Precise error location reporting
-- Context-aware error messages with suggestions for common mistakes
-
-### Compilation Pipeline
-
-The CompilScript compiler now follows a four-phase compilation process:
-
-#### Phase 1: Lexical and Syntactic Analysis
-```
-Source Code (.cps) → ANTLR Lexer → Token Stream → ANTLR Parser → Parse Tree
-```
-
-**Process:**
-1. **Lexical Analysis**: ANTLR-generated lexer tokenizes source code according to `Compiscript.g4`
-2. **Syntactic Analysis**: ANTLR-generated parser builds concrete syntax tree (CST)
-3. **Error Recovery**: ANTLR provides automatic error recovery and reporting
-
-#### Phase 2: Semantic Analysis
-```
-Parse Tree → SemanticVisitor → Abstract Syntax Tree (AST) + Symbol Tables
+```json
+{
+  "ok": true,
+  "diagnostics": [],
+  "ast_dot": "digraph AST { ... }",
+  "tac": {
+    "code": [
+      "# TAC Code Generation - CompilScript Compiler",
+      "t0 = 1",
+      "x = t0",
+      "call print, 1",
+      "..."
+    ],
+    "instruction_count": 42,
+    "temporaries_used": 7,
+    "functions_registered": 3,
+    "validation_errors": []
+  },
+  "scopes": {
+    "name": "global",
+    "symbols": {
+      "x": {
+        "type": "integer",
+        "address": "stack[0]",
+        "mutable": true
+      }
+    },
+    "children": []
+  }
+}
 ```
 
-**Analysis Steps:**
-1. **AST Construction**: Convert parse tree to typed AST nodes with semantic attributes
-2. **Symbol Table Building**: Create hierarchical scopes with symbol definitions
-3. **Type Checking**: Validate type compatibility in all expressions and statements
-4. **Scope Resolution**: Resolve all identifier references to their declarations
-5. **Control Flow Validation**: Verify proper use of `break`, `continue`, `return` statements
-6. **Class Analysis**: Process inheritance, method overrides, and member access
+`diagnostics` puede contener errores léxicos, sintácticos, semánticos o de TAC/MIPS con campos `kind`, `message`, `line`, `column` y `length`. Los flags `return_ast_dot` y `generate_tac` son opcionales.
 
-**Semantic Validation Rules:**
-- **Type Safety**: All operations checked for type compatibility with promotion rules
-- **Symbol Resolution**: All identifiers must be declared before use
-- **Immutability**: Constants cannot be reassigned after declaration
-- **Control Flow**: `break`/`continue` only in loops, `return` only in functions
-- **Class Members**: Field/method access validated against class definitions
-- **Function Signatures**: Parameter count and types validated in all calls
+## Características del lenguaje
 
-#### Phase 3: TAC Generation (New)
-```
-AST → IntegratedTACGenerator → TAC Instructions + Validation Stats
+### Tipos soportados
+
+- Primitivos: `integer`, `float`, `string`, `boolean`, `void`.
+- Arreglos con notación `type[]` ilimitada (`integer[][]`).
+- Clases definidas por el usuario con herencia simple.
+- Literales especiales: `true`, `false`, `null`.
+
+### Declaraciones y variables
+
+```cps
+var contador: integer = 0;
+const PI: float = 3.1416;
+var saludo = "hola";  // inferencia
 ```
 
-**Generation Steps:**
-1. **Expression Lowering**: Arithmetic, logical, and object-oriented expressions become TAC assignments with temporary management.
-2. **Control Flow Translation**: Conditionals, loops, and switch statements emit structured labels and jumps.
-3. **Function & Class Handling**: Activation records, parameter passing, and method dispatch are encoded with prologue/epilogue instructions.
-4. **Validation**: Label resolution, temporary balance, and structural checks run before emitting the final program.
+- `const` exige inicialización inmediata.
+- Inferencia disponible para `var` cuando el tipo se deduce del literal o expresión.
 
-**Artifacts:**
-- `output.tac`: Serialized TAC program saved to disk.
-- Console statistics: Instruction counts, temporary usage, registered functions/classes, and any validation warnings.
+### Expresiones y operadores
 
-#### Phase 4: Output Generation
-```
-AST + Symbol Tables → ast.dot (Visualization) + scopes.json (Debug Info)
-```
+- Aritmética: `+ - * / %` con promoción `integer -> float`.
+- Lógica: `&& || !` estrictamente booleanas.
+- Comparaciones: `== != < <= > >=`.
+- Condicional ternario: `cond ? expr1 : expr2`.
+- Acceso a propiedades y arreglos: `obj.campo`, `arr[i][j]`.
+- Literal y acceso a arreglos multidimensionales.
 
-**Generated Artifacts:**
-- **`ast.dot`**: Graphviz DOT file for AST visualization
-  - Node labels show AST node types and attributes
-  - Edges represent parent-child relationships
-  - Type annotations display inferred and declared types
+### Control de flujo
 
-- **`scopes.json`**: Complete symbol table dump
-  - Hierarchical scope structure with parent-child relationships
-  - All symbols with their types, kinds, and metadata
-  - Useful for debugging symbol resolution issues
-
-### Error Handling and Diagnostics
-
-**Error Categories:**
-- **Semantic Errors**: Type mismatches, undeclared variables, invalid operations
-- **Scope Errors**: Redeclaration, out-of-scope access, constant reassignment
-- **Control Flow Errors**: Invalid break/continue, return type mismatches
-- **Class Errors**: Inheritance cycles, invalid member access, constructor issues
-
-**Error Reporting Features:**
-- **Precise Location**: Line and column information for all errors
-- **Context-Aware Messages**: Detailed explanations with suggested fixes
-- **Multiple Error Reporting**: Continues analysis after non-fatal errors
-- **Type Information**: Shows expected vs. actual types in mismatches
-
-**Example Error Output:**
-```
-SemanticError at line 15, column 8: Cannot assign 'string' to variable 'count' of type 'integer'
-Expected: integer
-Actual: string
+```cps
+if (cond) { ... } else { ... }
+while (expr) { ... }
+do { ... } while (expr);
+for (var i: integer = 0; i < n; i = i + 1) { ... }
+foreach (item in coleccion) { ... }
+switch (valor) { case 1: ... default: ... }
+break; continue; return expr?;
 ```
 
-### Language Grammar
+- Valida que `break/continue` existan solo dentro de bucles y `return` dentro de funciones.
 
-The CompilScript language is defined by a comprehensive ANTLR4 grammar (`Compiscript.g4`) with the following specifications:
+### Funciones y closures
 
-#### Lexical Elements
+```cps
+function suma(a: integer, b: integer): integer {
+  return a + b;
+}
 
-**Literals:**
-- `IntegerLiteral`: Sequences of digits (`[0-9]+`)
-- `FloatLiteral`: Decimal numbers (`[0-9]+ '.' [0-9]+`)
-- `StringLiteral`: Double-quoted strings (`"..."`)
-- `BooleanLiteral`: `true`, `false`
-- `NullLiteral`: `null`
-
-**Identifiers:**
-- Pattern: `[a-zA-Z_][a-zA-Z0-9_]*`
-- Used for variables, functions, classes, and parameters
-
-**Comments:**
-- Single-line: `// comment text`
-- Multi-line: `/* comment block */`
-
-#### Data Types
-
-**Primitive Types:**
-- `boolean`: Boolean values (`true`/`false`)
-- `integer`: Whole numbers
-- `string`: Text literals
-- `float`: Floating-point numbers (inferred from literals)
-- `void`: No return value (functions/methods)
-
-**Composite Types:**
-- **Arrays**: `type[]`, `type[][]` (multi-dimensional)
-- **Classes**: User-defined object types with inheritance
-
-**Type Annotations:**
-- Optional type declarations: `var name: type`
-- Required for function parameters and return types
-- Automatic type inference for initialized variables
-
-#### Variable Declarations
-
-**Mutable Variables:**
-```antlr
-('let' | 'var') Identifier typeAnnotation? initializer? ';'
+function fabricaSaludo(nombre: string) {
+  function interno() {
+    print("Hola " + nombre);
+  }
+  return interno;
+}
 ```
 
-**Constants:**
-```antlr
-'const' Identifier typeAnnotation? '=' expression ';'
+- Soporta recursión, funciones anidadas y captura léxica.
+- `this` disponible dentro de métodos de clase con validación de contexto.
+
+### Clases y objetos
+
+```cps
+class Animal {
+  var nombre: string;
+  function speak(): void {
+    print(this.nombre);
+  }
+}
+
+class Perro: Animal {
+  function speak(): void {
+    print(this.nombre + " dice guau");
+  }
+}
+
+var dog: Perro = new Perro("Toby");
+dog.speak();
 ```
 
-#### Control Flow Statements
+- Constructor implícito si no existe.
+- Herencia simple con verificación de overrides y compatibilidad de firmas.
 
-**Conditional Statements:**
-- `if (expression) block ('else' block)?`
+### Manejo de errores
 
-**Loop Statements:**
-- `while (expression) block`
-- `do block while (expression);`
-- `for (init; condition; update) block`
-- `foreach (Identifier in expression) block`
-
-**Switch Statements:**
-```antlr
-'switch' '(' expression ')' '{' 
-  ('case' expression ':' statement*)*
-  ('default' ':' statement*)?
-'}'
+```cps
+try {
+  var peligro = lista[100];
+} catch (err) {
+  print("Error atrapado: " + err);
+}
 ```
 
-**Control Transfer:**
-- `break;` - Exit loops/switch
-- `continue;` - Continue to next loop iteration  
-- `return expression?;` - Return from functions
+`catch` requiere un identificador y bloque válido; el analizador garantiza la forma correcta.
 
-#### Function Declarations
+## Detalle de la implementación
 
-```antlr
-'function' Identifier '(' parameters? ')' (':' type)? block
+### AST y tabla de símbolos (`program/AST/`)
 
-parameters: parameter (',' parameter)*
-parameter: Identifier (':' type)?
+- `nodes.py`: define nodos con metadata (tipos inferidos, valores literales, etc.).
+- `symbol_table.py`: scopes anidados, detección de redeclaraciones, exportación a JSON y utilidades para anotaciones de memoria.
+- `ast_to_dot.py`: genera Graphviz DOT con etiquetas claras (nombre del nodo, atributos y tipos).
+
+### Módulos semánticos (`program/semantic/`)
+
+- `types.py`: normaliza nombres de tipos y construye `TypeNode(base, dimensions)`.
+- `expressions.py`: valida expresiones aritméticas, lógicas, arrays, `new`, `this`, `call`.
+- `statements.py`: maneja declaraciones, asignaciones, loops, `try/catch`, `switch`, `break`, `continue`, `return`.
+- `classes.py`: registra clases, verifica herencia, constructores, métodos y sobrescrituras.
+- `helpers.py`: compatibilidad de tipos, coerciones y reportes de error.
+- `state.py`: `SemanticState` centraliza `global_scope`, `current_scope`, pila de tipos de retorno y profundidades de loops/switch.
+
+### Generación de TAC (`program/tac/`)
+
+- Infraestructura: `temp_manager`, `label_manager`, `address_manager`.
+- `expression_generator`: instrucciones para expresiones, llamadas, literales y arreglos.
+- `control_flow_generator`: condicionales, loops, `switch`, `try/catch`, `break` y `continue`.
+- `function_generator`: prólogos/epílogos, registros de activación, métodos de clase (nombres calificados `Clase_metodo`).
+- `integrated_generator.py`: coordina generadores, registra funciones antes de visitarlas, expone estadísticas y validaciones (`validate_tac()`).
+- `symbol_annotator`: enriquece la tabla de símbolos con offsets concretos (stack/heap/global).
+
+Ejemplo TAC:
+
+```
+# TAC Code Generation - CompilScript Compiler
+@function main
+  t0 = 1
+  x = t0
+  param x
+  call print, 1
+  return
+endfunc
 ```
 
-**Features:**
-- Optional parameter types (with inference)
-- Optional return type annotation
-- Support for recursion and closures
-- Nested function definitions
+### Backend MIPS (`program/mips/`)
 
-#### Class Declarations
+- `integrated_mips_generator.py`: punto de entrada que consume `output.tac`.
+- `register_allocator.py`, `address_descriptor.py`, `register_descriptor.py`: asignación de registros con spilling controlado.
+- `activation_record.py` y `calling_convention.py`: construyen stack frames y manejan parámetros/retornos.
+- Traductores especializados (`expression_translator.py`, `control_flow_translator.py`, `loop_translator.py`, `function_translator.py`, `class_translator.py`).
+- `peephole_optimizer.py`: elimina cargas redundantes, stores muertos, simplifica operaciones algebraicas y colapsa saltos triviales.
+- `runtime_library.py`: funciones auxiliares (`print`, manejo de strings, utilidades de arrays).
 
-```antlr
-'class' Identifier (':' Identifier)? '{' classMember* '}'
+### IDE React (`IDE-compiscript/`)
 
-classMember: functionDeclaration | variableDeclaration | constantDeclaration
-```
+- `CompiscriptIU.jsx`: editor personalizado con manejo de tabs, auto indentación, resaltado usando sentinelas (`\uE000` – `\uE00B`) y cálculo preciso de columnas en pixeles.
+- `styles.css`: diseño responsivo inspirado en los laboratorios del curso.
+- Fetch al servidor: `fetch('http://localhost:8000/analyze', {...})` con JSON, manejo de `isRunning`, toasts y paneles de TAC/diagnósticos.
 
-**Object-Oriented Features:**
-- Single inheritance (`: ParentClass`)
-- Constructor methods
-- Instance methods and fields
-- `this` keyword for self-reference
-- `new` operator for instantiation
+## Artefactos generados
 
-#### Expression Grammar (Operator Precedence)
+| Archivo        | Descripción                                                     | Cómo visualizarlo                                   |
+|----------------|-----------------------------------------------------------------|-----------------------------------------------------|
+| `ast.dot`      | AST en formato Graphviz                                         | `dot -Tpng ast.dot -o ast.png`                      |
+| `output.tac`   | Código intermedio TAC completo                                  | Editor de texto / panel TAC del IDE                 |
+| `scopes.json`  | Tabla de símbolos anotada con offsets y metadata                | Cualquier visor JSON                                |
+| `output.s`     | Ensamblador MIPS listo para SPIM/MARS + runtime                 | Simuladores MIPS (SPIM, QtSPIM, MARS)               |
+| Respuesta API  | `diagnostics`, `tac`, `scopes`, `ast_dot`                       | Consumido por el IDE o integraciones externas       |
 
-**Precedence Hierarchy (Highest to Lowest):**
+## Pruebas y aseguramiento de calidad
 
-1. **Primary Expressions:**
-   - Literals, identifiers, parenthesized expressions
-   - Array literals: `[expr1, expr2, ...]`
+- **PyTest completo**  
+  ```bash
+  pytest program/tests
+  ```
 
-2. **Postfix Operations:**
-   - Function calls: `function(args)`
-   - Array indexing: `array[index]`
-   - Property access: `object.property`
+- **Suite semántica** (`test_semantic_analysis.py`)  
+  Cobertura de:
+  - Sistema de tipos (operaciones válidas/invalidas, inferencia, asignaciones).
+  - Manejo de scopes (redeclaraciones, uso de variables, closures).
+  - Funciones/procedimientos (argumentos, retornos, recursión).
+  - Control de flujo (condiciones, break/continue/return).
+  - Clases/objetos (constructores, herencia, `this`, miembros inexistentes).
+  - Arreglos y casos generales (código muerto, operaciones sin sentido).
 
-3. **Unary Operations:**
-   - Arithmetic negation: `-expr`
-   - Logical negation: `!expr`
+- **Suite TAC/MIPS** (`program/tests/tac` y `test_mips_*.py`)  
+  Valida temporales, etiquetas, registros de activación, asignación de registros y optimizaciones peephole.
 
-4. **Multiplicative Operations:**
-   - `*` (multiplication), `/` (division), `%` (modulo)
+- **Harness CLI** (`program/tests/run_tests.py`)  
+  Ejecuta cada `.cps` dentro de `program/tests`, reporta tiempos y resultados agregados para regresiones rápidas.
 
-5. **Additive Operations:**
-   - `+` (addition), `-` (subtraction)
+## Regenerar lexer/parser
 
-6. **Relational Operations:**
-   - `<`, `<=`, `>`, `>=` (comparisons)
-
-7. **Equality Operations:**
-   - `==` (equality), `!=` (inequality)
-
-8. **Logical AND:** `&&`
-
-9. **Logical OR:** `||`
-
-10. **Ternary Conditional:** `condition ? expr1 : expr2`
-
-11. **Assignment Operations:**
-    - Simple assignment: `variable = expression`
-    - Property assignment: `object.property = expression`
-
-#### Advanced Features
-
-**Exception Handling:**
-```antlr
-'try' block 'catch' '(' Identifier ')' block
-```
-
-**Object Construction:**
-- `new ClassName(arguments)` - Create class instances
-- Constructor parameter passing
-
-**Array Operations:**
-- Multi-dimensional array support: `type[][]`
-- Array literal initialization: `[1, 2, 3]`
-- Index-based access: `array[0]`
-
-**Type System Integration:**
-- Strong static typing with inference
-- Automatic numeric promotion (integer → float)
-- Type compatibility checking for all operations
-
-## Testing
-
-The project includes comprehensive test programs:
-
-- **`program.cps`**: General language features and basic constructs
-- **`program_loop.cps`**: Loop constructs and control flow
-- **`program_break_continue_return.cps`**: Control flow statements validation
-- **`program_dot_constructors.cps`**: Object-oriented features and constructor testing
-- **`program/tests/tac/test_*.py`**: New TAC-specific unit and integration tests that validate temporary recycling, label management, function lowering, and full-program TAC output.
-
-### Running Tests
-
-Execute individual test programs:
+Si cambias `program/Compiscript.g4`:
 
 ```bash
-python3 Driver.py program/<test_file.cps>
+cd program
+java -jar ../antlr-4.13.1-complete.jar -Dlanguage=Python3 -visitor -no-listener Compiscript.g4
 ```
 
-Run the aggregated semantic regression harness:
+Sobrescribe `CompiscriptLexer.py`, `CompiscriptParser.py` y `CompiscriptVisitor.py`. Asegúrate de reinstalar `antlr4-python3-runtime` si cambias la versión.
 
-```bash
-python3 program/tests/run_tests.py
-```
+## Solución de problemas y preguntas frecuentes
 
-Execute the TAC unit and integration suite (new):
+- **`antlr4` no encontrado**: instala `antlr4-python3-runtime` en el mismo entorno Python. El JAR ya está en la raíz (`antlr-4.13.1-complete.jar`).
+- **`dot` no está en PATH**: instala Graphviz y agrega su carpeta `bin`. Sin esto no podrás convertir `ast.dot` a PNG.
+- **El IDE no se conecta al servidor**: confirma que FastAPI siga en `http://localhost:8000`, sin proxys ni puertos bloqueados. Verifica CORS (está abierto por defecto).
+- **Errores TAC al compilar**: revisa `validation_errors` y corre `pytest program/tests/tac` para ubicar regresiones en generadores de expresiones/control de flujo.
+- **Advertencias de MIPS**: normalmente indican registros derramados o instrucciones no soportadas por el simulador. Ejecuta `pytest program/tests/test_mips_*.py` para confirmar.
+- **Docker en Windows**: usa PowerShell y respeta las comillas en el `-v "%cd%/program":/program`. Desde WSL, comparte la ruta del repo.
+- **Registros temporales agotados**: simplifica expresiones largas o divide funciones; el generador recicla temporales pero reporta warnings si detecta fugas.
 
-```bash
-python3 program/tests/tac/run_tac_tests.py
-```
+## Recursos adicionales
+
+- `README_RUN_PROJECT.md`: guía paso a paso centrada en Docker + FastAPI.
+- `readmes/README_SEMANTIC_ANALYSIS.md`: requisitos y rúbrica de la fase semántica.
+- `readmes/README_TAC_GENERATION.md`: expectativas de la fase de código intermedio.
+- `readmes/README_TESTS.md`: documentación de la batería de pruebas.
+- `readmes/README_CODE_GENERATION.md` y `readmes/README_NOTES.md`: decisiones de diseño y notas históricas.
+
+---
+
+Con esta información puedes entender y reproducir el estado final del proyecto: compilador CompilScript con pipeline completo, servicio REST e IDE interactivo. Si extiendes el lenguaje o el backend, mantén este README sincronizado para que la documentación siga reflejando el comportamiento real del repositorio. ¡Feliz compilación!
